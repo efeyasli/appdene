@@ -8,8 +8,9 @@ import {
   localDate,
   defaultReminder,
 } from "../domain/model";
-import { Button, Sheet, Timestamp } from "./Controls";
+import { Button, Sheet } from "./Controls";
 import { DateField } from "./DateField";
+import { ReminderField } from "./ReminderField";
 import { s } from "./styles";
 type Props = {
   task: Task;
@@ -51,10 +52,11 @@ export function TaskEditor({
         style={s.editInput}
       />
       <Text style={s.meta}>İlk giriş: {task.originalText}</Text>
-      <View style={s.setting}>
-        <Text>Önemli</Text>
+      <View style={[s.setting, s.inset]}>
+        <Text style={s.taskTitle}>★ Önemli</Text>
         <Switch
           accessibilityLabel="Önemli"
+          trackColor={{ true: "#5D47D9" }}
           value={task.important}
           onValueChange={(important) => setTask({ ...task, important })}
         />
@@ -98,8 +100,8 @@ export function TaskEditor({
           })
         }
       />
-      <Timestamp
-        label="Hatırlatma tarihi"
+      <ReminderField
+        dueDate={task.dueDate}
         value={task.reminderAt}
         onChange={(reminderAt) =>
           setTask({ ...task, reminderAt, snoozedUntil: undefined })

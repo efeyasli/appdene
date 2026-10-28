@@ -33,7 +33,7 @@ export function list(tasks: Task[], tab: Tab, now: Date): Task[] {
         a.createdAt.localeCompare(b.createdAt),
     );
 }
-export function attention(tasks: Task[], now: Date): Task | undefined {
+export function attentionCandidates(tasks: Task[], now: Date): Task[] {
   const today = dayKey(now),
     near = dayKey(addDays(now, 3));
   const rank = (t: Task) =>
@@ -56,7 +56,10 @@ export function attention(tasks: Task[], now: Date): Task | undefined {
         rank(a) - rank(b) ||
         (a.dueDate || "9999").localeCompare(b.dueDate || "9999") ||
         a.updatedAt.localeCompare(b.updatedAt),
-    )[0];
+    );
+}
+export function attention(tasks: Task[], now: Date): Task | undefined {
+  return attentionCandidates(tasks, now)[0];
 }
 export function status(t: Task, now: Date): string {
   const today = dayKey(now);

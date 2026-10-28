@@ -255,3 +255,69 @@ test("summary omits empty days, uses a finite horizon, capacity and future-only 
   assert.equal(capacity.notices.length, 50);
   assert.ok(capacity.overflow > 0);
 });
+
+test("reminder offsets preserve calendar days through month/year boundaries and do not alter due dates", async () => {
+  const { reminderFromOffset, reminderDays } =
+    await import("../src/domain/reminder");
+  const due = "2027-01-02";
+  assert.equal(
+    reminderFromOffset(due, 3, "18:00"),
+    localDate("2026-12-30", "18:00").toISOString(),
+  );
+  assert.equal(
+    reminderFromOffset("2028-03-01", 1, "09:00"),
+    localDate("2028-02-29", "09:00").toISOString(),
+  );
+  for (const n of reminderDays)
+    assert.equal(
+      dayKey(new Date(reminderFromOffset(due, n, "18:00"))),
+      dayKey(addDays(localDate(due), -n)),
+    );
+  assert.equal(due, "2027-01-02");
+  assert.equal(
+    defaultReminder(due, undefined, { ...settings, daysBefore: 7 }, now),
+    localDate("2026-12-26", "18:00").toISOString(),
+  );
+});
+
+test("calendar is Monday-first and includes adjacent months including leap years", async () => {
+  const { calendarDays } = await import("../src/domain/reminder");
+  const cells = calendarDays("2028-02-15");
+  assert.equal(cells.length, 42);
+  assert.equal(cells[0], "2028-01-31");
+  assert.ok(cells.includes("2028-02-29"));
+  assert.equal(localDate(cells[0]).getDay(), 1);
+  assert.equal(new Set(cells).size, 42);
+  for (let i = 1; i < cells.length; i++)
+    assert.equal(cells[i], dayKey(addDays(localDate(cells[i - 1]), 1)));
+  assert.ok(calendarDays("2026-12-01").includes("2027-01-01"));
+});
+
+test("attention carousel keeps priority order, excludes completed and snoozed tasks", async () => {
+  const { attentionCandidates } = await import("../src/domain/selectors");
+  const overdue = { ...task("ara"), dueDate: "2026-10-26" },
+    near = task("yarın quiz"),
+    important = { ...task("bak"), important: true };
+  const candidates = attentionCandidates(
+    [
+      important,
+      near,
+      overdue,
+      { ...task("bitti"), completedAt: now.toISOString() },
+      {
+        ...task("ertelendi"),
+        important: true,
+        snoozedUntil: addDays(now, 1).toISOString(),
+      },
+    ],
+    now,
+  );
+  assert.deepEqual(
+    candidates.map((t) => t.id),
+    [overdue.id, near.id, important.id],
+  );
+  assert.equal(
+    attention([important, near, overdue], now)?.id,
+    candidates[0].id,
+  );
+});

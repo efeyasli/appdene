@@ -1,4 +1,11 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  createContext,
+  useContext,
+} from "react";
 import {
   AccessibilityInfo,
   Animated,
@@ -13,9 +20,12 @@ import { s } from "./styles";
 const tabs: Tab[] = ["Bugün", "Yaklaşan", "Sonra"];
 
 // Respect the system preference, including changes while the app is open.
-export function useReducedMotion() {
-  const [reduced, setReduced] = useState(true);
+export const MotionContext = createContext<boolean | undefined>(undefined);
+export function useReducedMotion(override = false) {
+  const preference = useContext(MotionContext);
+  const [reduced, setReduced] = useState(preference ?? true);
   useEffect(() => {
+    if (preference !== undefined) return;
     let active = true;
     let changed = false;
     const subscription = AccessibilityInfo.addEventListener(
@@ -36,8 +46,8 @@ export function useReducedMotion() {
       active = false;
       subscription.remove();
     };
-  }, []);
-  return reduced;
+  }, [preference]);
+  return (preference ?? reduced) || override;
 }
 
 export function TaskTabs({
@@ -96,7 +106,7 @@ export function TaskTabs({
           >
             <Text
               style={{
-                color: selected === tab ? "#2459BF" : "#667085",
+                color: selected === tab ? "#18105B" : "#FFFFFF",
                 fontWeight: "600",
               }}
             >

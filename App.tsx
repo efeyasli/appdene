@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
   ActivityIndicator,
+  LayoutAnimation,
   AccessibilityInfo,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
@@ -26,7 +27,7 @@ import {
 } from "./src/domain/model";
 import { parseTurkish } from "./src/domain/parse";
 import {
-  attention,
+  attentionCandidates,
   list,
   status,
   Tab,
@@ -37,32 +38,32 @@ import { Repository } from "./src/data/repository";
 import { openRepository } from "./src/data/sqlite";
 import { allowed, driver } from "./src/platform/notifications";
 import { DateField } from "./src/ui/DateField";
-import { Button, Timestamp } from "./src/ui/Controls";
+import { Button, Sheet, Timestamp } from "./src/ui/Controls";
 import { s } from "./src/ui/styles";
 import { TaskEditor } from "./src/ui/TaskEditor";
 import { SettingsScreen } from "./src/ui/SettingsScreen";
-import {
-  TaskTabs,
-  TaskListTransition,
-  useReducedMotion,
-} from "./src/ui/TaskTabs";
-const blue = "#356FE5";
+import { TaskTabs, MotionContext, useReducedMotion } from "./src/ui/TaskTabs";
+import { AttentionCarousel } from "./src/ui/AttentionCarousel";
+import { TaskPager } from "./src/ui/TaskPager";
+import { CompletionControl } from "./src/ui/CompletionControl";
+import { selectionFeedback } from "./src/platform/haptics";
+const accent = "#FFE68A";
 export default function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <Main />
     </SafeAreaProvider>
   );
 }
 function Main() {
-  const reducedMotion = useReducedMotion();
   const [state, setState] = useState<State>(emptyState),
     [ready, setReady] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
     [now, setNow] = useState(new Date());
+  const reducedMotion = useReducedMotion(state.settings.reduceMotion);
   const repository = useRef<Repository | null>(null),
     current = useRef(state),
     locked = useRef(false);
@@ -163,6 +164,13 @@ function Main() {
       }));
       await repository.current.save(value);
       current.current = value;
+      if (!reducedMotion)
+        LayoutAnimation.configureNext({
+          duration: 220,
+          update: { type: "easeInEaseOut" },
+          delete: { type: "easeInEaseOut", property: "opacity" },
+          create: { type: "easeInEaseOut", property: "opacity" },
+        });
       setState(value);
       setNow(new Date());
       await sync(value);
@@ -256,22 +264,16 @@ function Main() {
       setNotice(`Yarın ${state.settings.summaryTime} için hatırlatma seçildi`);
     }
   }
-  const focus = attention(state.tasks, now),
-    rows = list(state.tasks, tab, now);
-  function row(t: Task) {
+  const focus = attentionCandidates(state.tasks, now).slice(0, 5);
+  function row(t: Task, page: Tab = tab) {
     return (
       <View key={t.id} style={s.row}>
-        <Pressable
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked: !!t.completedAt }}
-          accessibilityLabel={`${t.title} ${t.completedAt ? "yeniden aç" : "tamamla"}`}
-          onPress={() => void complete(t)}
-          style={s.check}
-        >
-          <Text style={{ fontSize: 25, color: blue }}>
-            {t.completedAt ? "●" : "○"}
-          </Text>
-        </Pressable>
+        <CompletionControl
+          completed={!!t.completedAt}
+          label={`${t.title} ${t.completedAt ? "yeniden aç" : "tamamla"}`}
+          reduced={reducedMotion}
+          onComplete={() => complete(t)}
+        />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`${t.title}, ayrıntıları düzenle`}
@@ -283,7 +285,7 @@ function Main() {
               s.taskTitle,
               t.completedAt && {
                 textDecorationLine: "line-through",
-                color: "#667085",
+                color: "#7065AC",
               },
             ]}
           >
@@ -303,7 +305,7 @@ function Main() {
               .filter(Boolean)
               .join(" · ") || "Tarihsiz"}
           </Text>
-          {tab === "Yaklaşan" && (
+          {page === "Yaklaşan" && (
             <Text style={s.meta}>
               Sıradaki tarih: {dateLabel(futureDate(t, dayKey(now)))}
             </Text>
@@ -315,7 +317,9 @@ function Main() {
           onPress={() => void patch({ ...t, important: !t.important })}
           style={s.check}
         >
-          <Text style={{ fontSize: 24, color: t.important ? blue : "#667085" }}>
+          <Text
+            style={{ fontSize: 24, color: t.important ? "#D0A320" : "#7065AC" }}
+          >
             {t.important ? "★" : "☆"}
           </Text>
         </Pressable>
@@ -331,275 +335,281 @@ function Main() {
             <Button label="Yeniden dene" onPress={() => void load()} />
           </>
         ) : (
-          <ActivityIndicator color={blue} />
+          <ActivityIndicator color={accent} />
         )}
       </SafeAreaView>
     );
   return (
-    <SafeAreaView style={s.safe}>
-      <KeyboardAvoidingView
-        style={s.safe}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={s.body}
+    <MotionContext.Provider value={reducedMotion}>
+      <SafeAreaView style={s.safe}>
+        <KeyboardAvoidingView
+          style={s.safe}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
-          <View style={s.header}>
-            <Text accessibilityRole="header" style={s.title}>
-              İşlerim
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Ayarlar"
-              onPress={() => setSettings(true)}
-              style={s.check}
-            >
-              <Text style={{ fontSize: 26, color: "#667085" }}>⚙</Text>
-            </Pressable>
-          </View>
-          <Text style={s.date}>
-            {now.toLocaleDateString("tr-TR", {
-              day: "numeric",
-              month: "long",
-              weekday: "long",
-              year: "numeric",
-            })}
-          </Text>
-          <View style={s.composer}>
-            <TextInput
-              ref={input}
-              accessibilityLabel="Yeni görev"
-              placeholder="Aklında ne var?"
-              placeholderTextColor="#667085"
-              value={text}
-              onChangeText={(v) => {
-                setText(v);
-                setOverride(null);
-              }}
-              onSubmitEditing={() => void add()}
-              submitBehavior="submit"
-              returnKeyType="done"
-              style={s.input}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Görevi ekle"
-              disabled={busy || !text.trim()}
-              onPress={() => void add()}
-              style={[s.add, (busy || !text.trim()) && { opacity: 0.45 }]}
-            >
-              <Text style={{ fontSize: 27, color: "white" }}>+</Text>
-            </Pressable>
-          </View>
-          {!!text && (
-            <Pressable
-              onPress={() => {
-                if (!override)
-                  setOverride({
-                    dueDate: parsed.dueDate,
-                    dueTime: parsed.dueTime,
-                    reminderAt: reminder,
-                  });
-                setQuick(!quick);
-              }}
-              style={{ paddingVertical: 10, minHeight: 44 }}
-              accessibilityLabel="Algılanan tarihi ve hatırlatmayı düzelt"
-            >
-              <Text style={s.meta}>
-                {due.dueDate
-                  ? `${dateLabel(due.dueDate)}${due.dueTime ? " · " + due.dueTime : ""}`
-                  : parsed.warning}
-                {due.dueDate
-                  ? ` · Hatırlatma: ${reminder ? new Date(reminder).toLocaleString("tr-TR") : "seçilmedi"}`
-                  : ""}{" "}
-                · Düzenle
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={s.body}
+          >
+            <View style={s.header}>
+              <Text accessibilityRole="header" style={s.title}>
+                İşlerim
               </Text>
-              {parsed.warning && due.dueDate && (
-                <Text style={s.meta}>{parsed.warning}</Text>
-              )}
-            </Pressable>
-          )}
-          {quick && (
-            <View style={s.inset}>
-              <DateField
-                label="Teslim tarihi"
-                value={due.dueDate}
-                onChange={(d) =>
-                  setOverride({
-                    ...override,
-                    dueDate: d,
-                    dueTime: d ? due.dueTime : undefined,
-                    reminderAt: defaultReminder(
-                      d,
-                      due.dueTime,
-                      state.settings,
-                      new Date(),
-                    ),
-                  })
-                }
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Ayarlar"
+                onPress={() => setSettings(true)}
+                style={s.check}
+              >
+                <Text style={{ fontSize: 26, color: "white" }}>⚙</Text>
+              </Pressable>
+            </View>
+            <Text style={s.date}>
+              {now.toLocaleDateString("tr-TR", {
+                day: "numeric",
+                month: "long",
+                weekday: "long",
+                year: "numeric",
+              })}
+            </Text>
+            <View style={s.composer}>
+              <TextInput
+                ref={input}
+                accessibilityLabel="Yeni görev"
+                placeholder="Aklındakini yaz…"
+                placeholderTextColor="#7065AC"
+                value={text}
+                onChangeText={(v) => {
+                  setText(v);
+                  setOverride(null);
+                }}
+                onSubmitEditing={() => void add()}
+                submitBehavior="submit"
+                returnKeyType="done"
+                style={s.input}
               />
-              {due.dueDate && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Görevi ekle"
+                disabled={busy || !text.trim()}
+                onPress={() => void add()}
+                style={[s.add, (busy || !text.trim()) && { opacity: 0.45 }]}
+              >
+                <Text style={{ fontSize: 27, color: "#5D47D9" }}>↑</Text>
+              </Pressable>
+            </View>
+            {!!text && (
+              <Pressable
+                onPress={() => {
+                  if (!override)
+                    setOverride({
+                      dueDate: parsed.dueDate,
+                      dueTime: parsed.dueTime,
+                      reminderAt: reminder,
+                    });
+                  setQuick(!quick);
+                }}
+                style={{ paddingVertical: 10, minHeight: 44 }}
+                accessibilityLabel="Algılanan tarihi ve hatırlatmayı düzelt"
+              >
+                <Text style={[s.meta, { color: "#E5DEFF" }]}>
+                  {due.dueDate
+                    ? `${dateLabel(due.dueDate)}${due.dueTime ? " · " + due.dueTime : ""}`
+                    : parsed.warning}
+                  {due.dueDate
+                    ? ` · Hatırlatma: ${reminder ? new Date(reminder).toLocaleString("tr-TR") : "seçilmedi"}`
+                    : ""}{" "}
+                  · Düzenle
+                </Text>
+                {parsed.warning && due.dueDate && (
+                  <Text style={[s.meta, { color: "#E5DEFF" }]}>
+                    {parsed.warning}
+                  </Text>
+                )}
+              </Pressable>
+            )}
+            {quick && (
+              <Sheet
+                title="Tarih ve hatırlatma"
+                onClose={() => setQuick(false)}
+              >
                 <DateField
-                  label="Teslim saati (isteğe bağlı)"
-                  time
-                  value={due.dueTime}
-                  onChange={(t) =>
+                  label="Teslim tarihi"
+                  value={due.dueDate}
+                  onChange={(d) =>
                     setOverride({
                       ...override,
-                      dueDate: due.dueDate,
-                      dueTime: t,
+                      dueDate: d,
+                      dueTime: d ? due.dueTime : undefined,
                       reminderAt: defaultReminder(
-                        due.dueDate,
-                        t,
+                        d,
+                        due.dueTime,
                         state.settings,
                         new Date(),
                       ),
                     })
                   }
                 />
-              )}
-              <Timestamp
-                label="Hatırlatma tarihi"
-                value={reminder}
-                onChange={(r) =>
-                  setOverride({
-                    dueDate: due.dueDate,
-                    dueTime: due.dueTime,
-                    reminderAt: r,
-                  })
-                }
-              />
-            </View>
-          )}
-          {!!error && (
-            <View style={s.feedback}>
-              <Text accessibilityRole="alert" style={{ color: "#A02F28" }}>
-                {error}
-              </Text>
-              <Pressable
-                onPress={() => setError("")}
-                style={{ paddingVertical: 8 }}
-              >
-                <Text>Kapat</Text>
-              </Pressable>
-            </View>
-          )}
-          {!!notice && (
-            <View style={s.feedback}>
-              <Text accessibilityLiveRegion="polite">{notice}</Text>
-              <View style={s.actions}>
-                {undo && (
-                  <Button
-                    label="Geri al"
-                    secondary
-                    onPress={() => void restore()}
-                  />
-                )}
-                <Button
-                  label="Kapat"
-                  secondary
-                  onPress={() => {
-                    setNotice("");
-                    setUndo(null);
-                  }}
-                />
-              </View>
-            </View>
-          )}
-          {focus && (
-            <View style={s.focus}>
-              <Text style={[s.meta, { color: "#2459BF", fontWeight: "600" }]}>
-                ☆ Önemli & yaklaşan
-              </Text>
-              <Pressable
-                onPress={() => setEditing({ ...focus })}
-                style={{ paddingVertical: 10 }}
-              >
-                <Text style={s.taskTitle} numberOfLines={2}>
-                  {focus.title}
-                </Text>
-                <Text style={s.meta}>
-                  {status(focus, now) ||
-                    (focus.dueDate
-                      ? `Teslim: ${dateLabel(focus.dueDate)}`
-                      : "Önemli · tarihsiz")}
-                </Text>
-              </Pressable>
-              <View style={s.actions}>
-                {focus.plannedDate !== dayKey(now) && (
-                  <Button
-                    label="Bugüne ekle"
-                    onPress={() =>
-                      void patch({ ...focus, plannedDate: dayKey(now) })
+                {due.dueDate && (
+                  <DateField
+                    label="Teslim saati (isteğe bağlı)"
+                    time
+                    value={due.dueTime}
+                    onChange={(t) =>
+                      setOverride({
+                        ...override,
+                        dueDate: due.dueDate,
+                        dueTime: t,
+                        reminderAt: defaultReminder(
+                          due.dueDate,
+                          t,
+                          state.settings,
+                          new Date(),
+                        ),
+                      })
                     }
                   />
                 )}
-                <Button
-                  label={`Yarın hatırlat · ${state.settings.summaryTime}`}
-                  secondary
-                  onPress={() => void snooze(focus)}
+                <Timestamp
+                  label="Hatırlatma tarihi"
+                  value={reminder}
+                  onChange={(r) =>
+                    setOverride({
+                      dueDate: due.dueDate,
+                      dueTime: due.dueTime,
+                      reminderAt: r,
+                    })
+                  }
                 />
-              </View>
-            </View>
-          )}
-          <TaskTabs
-            selected={tab}
-            onSelect={setTab}
-            reducedMotion={reducedMotion}
-          />
-          <TaskListTransition tab={tab} reducedMotion={reducedMotion}>
-            {rows.length ? (
-              rows.map(row)
-            ) : (
-              <Text style={s.empty}>
-                {tab === "Bugün"
-                  ? "Bugün için iş yok."
-                  : tab === "Yaklaşan"
-                    ? "Yaklaşan iş yok."
-                    : "Tarihsiz iş yok. Aklındakini yukarıya yaz."}
-              </Text>
+              </Sheet>
             )}
-          </TaskListTransition>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => setShowDone(!showDone)}
-            style={{ paddingVertical: 20, minHeight: 44 }}
-          >
-            <Text style={s.meta}>
-              {showDone ? "Tamamlananları gizle" : "Tamamlananları göster"} (
-              {state.tasks.filter((t) => t.completedAt).length})
-            </Text>
-          </Pressable>
-          {showDone && state.tasks.filter((t) => t.completedAt).map(row)}
-        </ScrollView>
-      </KeyboardAvoidingView>
-      {editing && (
-        <TaskEditor
-          task={editing}
-          setTask={setEditing}
-          error={error}
-          busy={busy}
-          now={now}
-          state={state}
-          patch={patch}
-          complete={complete}
-          remove={remove}
-          setNotice={setNotice}
-        />
-      )}
-      {settings && (
-        <SettingsScreen
-          state={state}
-          error={error}
-          busy={busy}
-          permission={permission}
-          setPermission={setPermission}
-          setError={setError}
-          commit={commit}
-          onClose={() => setSettings(false)}
-        />
-      )}
-    </SafeAreaView>
+            {!!error && (
+              <View style={s.feedback}>
+                <Text accessibilityRole="alert" style={{ color: "#A02F28" }}>
+                  {error}
+                </Text>
+                <Pressable
+                  onPress={() => setError("")}
+                  style={{ paddingVertical: 8 }}
+                >
+                  <Text>Kapat</Text>
+                </Pressable>
+              </View>
+            )}
+            {!!notice && (
+              <View style={s.feedback}>
+                <Text accessibilityLiveRegion="polite">{notice}</Text>
+                <View style={s.actions}>
+                  {undo && (
+                    <Button
+                      label="Geri al"
+                      secondary
+                      onPress={() => void restore()}
+                    />
+                  )}
+                  <Button
+                    label="Kapat"
+                    secondary
+                    onPress={() => {
+                      setNotice("");
+                      setUndo(null);
+                    }}
+                  />
+                </View>
+              </View>
+            )}
+            <AttentionCarousel
+              tasks={focus}
+              now={now}
+              reduced={reducedMotion}
+              onOpen={(t) => setEditing({ ...t })}
+              onToday={(t) => void patch({ ...t, plannedDate: dayKey(now) })}
+              onSnooze={(t) => void snooze(t)}
+            />
+            <TaskTabs
+              selected={tab}
+              onSelect={(t) => {
+                if (t !== tab) selectionFeedback();
+                setTab(t);
+              }}
+              reducedMotion={reducedMotion}
+            />
+            <TaskPager
+              selected={tab}
+              onSelect={setTab}
+              reduced={reducedMotion}
+              renderPage={(page) => {
+                const rows = list(state.tasks, page, now);
+                return (
+                  <View style={s.taskCard}>
+                    <View style={s.setting}>
+                      <Text style={s.h2}>
+                        {page === "Bugün"
+                          ? "Bugünün odağı"
+                          : page === "Yaklaşan"
+                            ? "Yaklaşan işler"
+                            : "Sonra bakılacaklar"}
+                      </Text>
+                      <Text style={s.meta}>{rows.length} iş</Text>
+                    </View>
+                    {rows.length ? (
+                      rows.map((t) => row(t, page))
+                    ) : (
+                      <Text style={s.empty}>
+                        {page === "Bugün"
+                          ? "Bugün için iş yok."
+                          : page === "Yaklaşan"
+                            ? "Yaklaşan iş yok."
+                            : "Aklındakini yukarıya yaz."}
+                      </Text>
+                    )}
+                  </View>
+                );
+              }}
+            />
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowDone(!showDone)}
+              style={{ paddingVertical: 20, minHeight: 44 }}
+            >
+              <Text style={[s.meta, { color: "#E5DEFF" }]}>
+                {showDone ? "Tamamlananları gizle" : "Tamamlananları göster"} (
+                {state.tasks.filter((t) => t.completedAt).length})
+              </Text>
+            </Pressable>
+            {showDone && (
+              <View style={s.taskCard}>
+                {state.tasks.filter((t) => t.completedAt).map((t) => row(t))}
+              </View>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+        {editing && (
+          <TaskEditor
+            task={editing}
+            setTask={setEditing}
+            error={error}
+            busy={busy}
+            now={now}
+            state={state}
+            patch={patch}
+            complete={complete}
+            remove={remove}
+            setNotice={setNotice}
+          />
+        )}
+        {settings && (
+          <SettingsScreen
+            state={state}
+            error={error}
+            busy={busy}
+            permission={permission}
+            setPermission={setPermission}
+            setError={setError}
+            commit={commit}
+            onClose={() => setSettings(false)}
+          />
+        )}
+      </SafeAreaView>
+    </MotionContext.Provider>
   );
 }

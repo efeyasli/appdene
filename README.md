@@ -66,7 +66,7 @@ npm test
 npx expo export --platform ios --max-workers 2
 ```
 
-Bu ortamda geçenler: 8 domain/entegrasyon testi; sabit referans tarihle gün/hafta/ay/yıl sınırları, geçersiz tarihler, kaybolmayan görevler, bağımsız çalışma günü, erteleme ve öncelik; gerçek dosya tabanlı SQLite’ı kapatıp yeniden açarak Repository CRUD; hata durumları; sahte OS adaptörüyle bildirim oluşturma/yenileme/iptal/geri alma/izin reddi/kapasite. Node SQLite testi aynı Repository’yi kullanır, Expo SQLite köprüsünü test etmez. Typecheck, lint, iOS Hermes/Metro paketlemesi ve geliştirme sunucusunun iOS manifest yanıtı doğrulandı.
+Bu ortamda geçenler: 11 domain/entegrasyon testi; sabit referans tarihle gün/hafta/ay/yıl sınırları, geçersiz tarihler, kaybolmayan görevler, bağımsız çalışma günü, erteleme ve öncelik; gerçek dosya tabanlı SQLite’ı kapatıp yeniden açarak Repository CRUD; hata durumları; sahte OS adaptörüyle bildirim oluşturma/yenileme/iptal/geri alma/izin reddi/kapasite. Node SQLite testi aynı Repository’yi kullanır, Expo SQLite köprüsünü test etmez. Typecheck, lint, iOS Hermes/Metro paketlemesi ve geliştirme sunucusunun iOS manifest yanıtı doğrulandı.
 
 **Gerçek cihazda test edilen özellik: yok.** UI dokunuşları, Expo SQLite native köprüsünün uygulama zorla kapatılıp açıldıktan sonraki kalıcılığı, yerel bildirimin kilit ekranında teslimi, klavye, VoiceOver ve büyük yazı/küçük ekran görünümü bu Linux makinesinde doğrulanamadı. Kodda safe area, klavye kaçınması, kaydırılabilir formlar, erişilebilir etiketler ve en az 44 pt kontroller var; fiziksel doğrulama yapılmış sayılmaz.
 
@@ -94,3 +94,18 @@ Paket sürümleri Expo’nun kurulu SDK uyumluluk tablosuyla (`expo install --of
 iPhone klavyesinin dikte mikrofonuyla görev kutusuna metin girmek mümkündür (iOS Ayarları → Genel → Klavye → Dikte’yi Etkinleştir; Türkçe klavye kullanın). Sonuç normal metin gibi tarih algılama motorundan geçer; kaydetmeden önce düzeltilebilir. Bu sistem klavyesinin özelliğidir, uygulamaya özel ses tanıma eklenmedi.
 
 Uygulama içi mikrofon için incelenen [expo-speech-recognition](https://github.com/jamsch/expo-speech-recognition) native modül ve izinler içerir; Expo Go yerine ayrı development build gerekir. Bu turda kapsam dışında bırakıldı; ücretli API veya mikrofon izni eklenmedi. Sonraki iterasyonda Türkçe konuşma, izin reddi ve cihaz desteğiyle birlikte ele alınabilir. Yeni geçişlerin ve sistem diktesinin fiziksel iPhone davranışı bu ortamda test edilmedi.
+
+## Güncel arayüz ve etkileşimler
+
+Beş tasarım referansına göre mor zemin, lavanta yüzeyler, beyaz görev kartları ve sarı ana aksiyonlar kullanılır. Telefon çerçevesi, sahte durum çubuğu ve örnek görevler uygulamaya eklenmedi.
+
+- Önemli & yaklaşan: kurallara göre en fazla 5 gerçek görev, yatay kart kaydırma ve karta oturma. Sayfa noktalarına dokunmak da kart değiştirir. İlgili görev yoksa alan gizlenir.
+- Bugün / Yaklaşan / Sonra: sekmeye dokunma ve yatay sayfa kaydırma; seçili gösterge animasyonu, liste yüksekliği için 220 ms geçiş.
+- Detay, tarih, saat ve hatırlatma panelleri: alttan açılır. Başlık/tutamaktan aşağı çekerek, kapat düğmesinden veya dış alana dokunarak kapanır. Kaydetmeden kapanan panel taslak değişikliklerini uygulamaz.
+- Tarih takvimi pazartesi başlar; Bugün/Yarın/Haftaya kısa yolları vardır. Saat, iOS native spinner ile seçilir. Android sistem seçicisini kullanır.
+- Hatırlatma slider’ı aynı gün / 1 / 2 / 3 / 7 gün önce değerlerine oturur. Dokunulabilir eşdeğerleri bulunur. Saat ve hesaplanan tarih anında güncellenir. Özel tarihler korunur ve ayrıca düzenlenebilir. Geçmiş hatırlatma kaydı engellenir; yeni zaman seçilebilir.
+- Tamamlamada 210 ms kısa onay, sonra veri yazımı ve yumuşak liste yerleşimi; yazma başarısızsa görev tamamlanmış sayılmaz. Geri alma 6 saniye görünür.
+- Düğmelerde hafif basılma; seçim ve tamamlamada Expo Haptics. Destek/izin/cihaz ayarlarına bağlı olarak haptik çalışmayabilir ve bu görev işlemini engellemez.
+- Sistem Hareketi Azalt veya Ayarlar’daki uygulama tercihi etkinse uygulama animasyonları kapanır. Bu tercih geriye uyumlu opsiyonel ayar olarak cihazda saklanır.
+
+`expo-haptics` ve `@react-native-community/slider` SDK uyumlu sürümlerde eklendi; güncellemeyi aldıktan sonra `npm ci` çalıştırın. Expo Go akışı korunur. Güncel sürüm 11 test, typecheck, lint ve iOS JS paketlemesi ile doğrulanır; bu kontroller native jestleri, slider’ı, haptikleri, VoiceOver’ı veya klavyeyi cihazda doğrulamaz. İlk iPhone turunda hızlı sekme dokunuşları, yatay kaydırma, büyük yazı, panel üzerinde klavye, aşağı çekerek kapatma, tamamla/geri al ve Hareketi Azalt kontrol edilmelidir.

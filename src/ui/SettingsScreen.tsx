@@ -1,10 +1,22 @@
 import React from "react";
-import { Text, View, Switch, Alert, Linking } from "react-native";
+import {
+  Text,
+  View,
+  Switch,
+  Alert,
+  Linking,
+  Modal,
+  ScrollView,
+  Pressable,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { State } from "../domain/model";
 import { allowed, requestNotifications } from "../platform/notifications";
 import { Button, Sheet } from "./Controls";
 import { DateField } from "./DateField";
 import { s } from "./styles";
+import { useReducedMotion } from "./TaskTabs";
+import { selectionFeedback } from "../platform/haptics";
 type Props = {
   state: State;
   error: string;
@@ -25,135 +37,226 @@ export function SettingsScreen({
   commit,
   onClose,
 }: Props) {
+  const reduced = useReducedMotion();
+  const [choice, setChoice] = React.useState<"days" | "hours" | null>(null);
+  async function toggleNotifications(value: boolean) {
+    try {
+      if (value && !(await requestNotifications())) {
+        Alert.alert(
+          "Bildirim izni verilmedi",
+          "Görevler kullanılabilir. Sistem Ayarları’ndan izin verebilirsin.",
+        );
+        return;
+      }
+      await commit((v) => ({
+        ...v,
+        settings: { ...v.settings, notifications: value },
+      }));
+      setPermission(await allowed());
+    } catch {
+      setError("Bildirim izni kontrol edilemedi.");
+    }
+  }
+  const row = (
+    label: string,
+    value: boolean,
+    change: (v: boolean) => void,
+    disabled = false,
+  ) => (
+    <View style={s.fieldRow}>
+      <Text style={[s.taskTitle, { flex: 1 }]}>{label}</Text>
+      <Switch
+        trackColor={{ true: "#5D47D9" }}
+        accessibilityLabel={label}
+        value={value}
+        disabled={disabled || busy}
+        onValueChange={(v) => {
+          selectionFeedback();
+          change(v);
+        }}
+      />
+    </View>
+  );
+  const section = (title: string, children: React.ReactNode) => (
+    <>
+      <Text
+        style={{
+          fontSize: 18,
+          fontWeight: "600",
+          color: "white",
+          marginTop: 22,
+          marginBottom: 12,
+        }}
+      >
+        {title}
+      </Text>
+      <View style={s.taskCard}>{children}</View>
+    </>
+  );
   return (
-    <Sheet title="Ayarlar" onClose={onClose}>
-      {!!error && (
-        <Text accessibilityRole="alert" style={{ color: "#A02F28" }}>
-          {error}
-        </Text>
-      )}
-      <Text style={s.h2}>Bildirimler</Text>
-      <Text style={s.meta}>
-        İzin: {permission ? "verildi" : "verilmedi"} · Hatırlatmalar:{" "}
-        {state.settings.notifications ? "açık" : "kapalı"}
-      </Text>
-      <Button
-        label={
-          state.settings.notifications
-            ? "Hatırlatmaları kapat"
-            : "Yerel bildirimleri etkinleştir"
-        }
-        disabled={busy}
-        onPress={() =>
-          void (async () => {
-            if (state.settings.notifications) {
-              await commit((v) => ({
-                ...v,
-                settings: { ...v.settings, notifications: false },
-              }));
-              return;
-            }
-            try {
-              if (await requestNotifications())
-                await commit((v) => ({
-                  ...v,
-                  settings: { ...v.settings, notifications: true },
-                }));
-              else
-                Alert.alert(
-                  "Bildirim izni verilmedi",
-                  "Görevlerini kullanmaya devam edebilirsin. Sistem Ayarları’ndan bildirimlere izin verebilirsin.",
-                );
-              setPermission(await allowed());
-            } catch {
-              setError("Bildirim izni kontrol edilemedi.");
-            }
-          })()
-        }
-      />
-      <Button
-        secondary
-        label="Sistem ayarlarını aç"
-        onPress={() => void Linking.openSettings()}
-      />
-      <Button
-        secondary
-        label="Bildirim takvimini yeniden dene"
-        disabled={busy}
-        onPress={() => void commit((v) => ({ ...v }))}
-      />
-      <Text style={s.h2}>Varsayılanlar</Text>
-      <Text style={s.meta}>
-        Yeni görevlerde uygulanır. Teslim saati oluşturmaz.
-      </Text>
-      <DateField
-        clearable={false}
-        label="Saatsiz iş: bir önceki gün"
-        time
-        value={state.settings.previousDayTime}
-        onChange={(time) => {
-          if (time)
-            void commit((v) => ({
-              ...v,
-              settings: { ...v.settings, previousDayTime: time },
-            }));
-        }}
-      />
-      <Text style={s.meta}>
-        Saatli iş: teslimden {state.settings.hoursBefore} saat önce
-      </Text>
-      <View style={s.actions}>
-        {[1, 2, 3].map((n) => (
+    <Modal animationType={reduced ? "none" : "slide"} onRequestClose={onClose}>
+      <SafeAreaView style={s.safe}>
+        <ScrollView
+          contentContainerStyle={s.body}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={s.header}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Geri"
+              onPress={onClose}
+              style={s.check}
+            >
+              <Text style={{ fontSize: 32, color: "white" }}>‹</Text>
+            </Pressable>
+            <Text style={[s.title, { flex: 1 }]}>Ayarlar</Text>
+          </View>
+          {!!error && (
+            <Text accessibilityRole="alert" style={s.feedback}>
+              {error}
+            </Text>
+          )}
+          {section(
+            "Bildirimler",
+            <>
+              {row(
+                "Bildirimler",
+                state.settings.notifications,
+                (v) => void toggleNotifications(v),
+              )}
+              {row(
+                "Günlük özet",
+                state.settings.summary,
+                (v) =>
+                  void commit((x) => ({
+                    ...x,
+                    settings: { ...x.settings, summary: v },
+                  })),
+                !state.settings.notifications,
+              )}
+              <DateField
+                clearable={false}
+                label="Özet saati"
+                time
+                value={state.settings.summaryTime}
+                onChange={(time) => {
+                  if (time)
+                    void commit((x) => ({
+                      ...x,
+                      settings: { ...x.settings, summaryTime: time },
+                    }));
+                }}
+              />
+              <Text style={s.meta}>
+                İzin: {permission ? "verildi" : "verilmedi"}
+              </Text>
+            </>,
+          )}
+          <Text style={{ color: "#E5DEFF", marginTop: 10, lineHeight: 20 }}>
+            Bugünün işleri ve yaklaşan teslimler. Özet, uygulama açıldığında
+            sonraki 7 gün için güncellenir.
+          </Text>
+          {section(
+            "Varsayılan hatırlatma",
+            <>
+              <Pressable
+                style={s.fieldRow}
+                accessibilityRole="button"
+                onPress={() => setChoice("days")}
+              >
+                <Text style={[s.taskTitle, { flex: 1 }]}>Tarihli işler</Text>
+                <Text style={s.meta}>
+                  {state.settings.daysBefore ?? 1} gün önce ›
+                </Text>
+              </Pressable>
+              <Pressable
+                style={s.fieldRow}
+                accessibilityRole="button"
+                onPress={() => setChoice("hours")}
+              >
+                <Text style={[s.taskTitle, { flex: 1 }]}>Saatli işler</Text>
+                <Text style={s.meta}>
+                  {state.settings.hoursBefore} saat önce ›
+                </Text>
+              </Pressable>
+              <DateField
+                clearable={false}
+                label="Varsayılan saat"
+                time
+                value={state.settings.previousDayTime}
+                onChange={(time) => {
+                  if (time)
+                    void commit((x) => ({
+                      ...x,
+                      settings: { ...x.settings, previousDayTime: time },
+                    }));
+                }}
+              />
+            </>,
+          )}
+          {section(
+            "Erişilebilirlik",
+            <>
+              {row(
+                "Hareketi azalt",
+                !!state.settings.reduceMotion,
+                (v) =>
+                  void commit((x) => ({
+                    ...x,
+                    settings: { ...x.settings, reduceMotion: v },
+                  })),
+              )}
+              <Text style={s.meta}>
+                Sistemin Hareketi Azalt tercihi de her zaman uygulanır.
+              </Text>
+            </>,
+          )}
+          <Text style={{ color: "#E5DEFF", marginVertical: 16 }}>
+            Verilerin bu cihazda saklanır.
+          </Text>
           <Button
-            key={n}
-            label={`${n} saat`}
-            secondary={state.settings.hoursBefore !== n}
-            onPress={() =>
-              void commit((v) => ({
-                ...v,
-                settings: { ...v.settings, hoursBefore: n },
-              }))
-            }
+            secondary
+            label="Sistem bildirim ayarları"
+            onPress={() => void Linking.openSettings()}
           />
-        ))}
-      </View>
-      <View style={s.setting}>
-        <Text>Günlük özet</Text>
-        <Switch
-          accessibilityLabel="Günlük özet"
-          value={state.settings.summary}
-          disabled={!state.settings.notifications || busy}
-          onValueChange={(summary) =>
-            void commit((v) => ({
-              ...v,
-              settings: { ...v.settings, summary },
-            }))
-          }
-        />
-      </View>
-      <DateField
-        clearable={false}
-        label="Günlük özet ve yarına erteleme saati"
-        time
-        value={state.settings.summaryTime}
-        onChange={(time) => {
-          if (time)
-            void commit((v) => ({
-              ...v,
-              settings: { ...v.settings, summaryTime: time },
-            }));
-        }}
-      />
-      <Text style={s.meta}>
-        Özet, uygulama açıldığında mevcut verilerle sonraki 7 gün için
-        hazırlanır. Boş günlerde kurulmaz. Daha uzun süre açmazsan yeni özet
-        gelmez. Cihazdaki en yakın 50 bildirime öncelik verilir.
-      </Text>
-      <Text style={s.meta}>
-        Veriler yalnızca bu cihazda saklanır. Takvim günleri yerel gün olarak,
-        hatırlatmalar sabit bir zaman anı olarak korunur; saat dilimi değişince
-        bildirim aynı anda, yeni yerel saatle görünür.
-      </Text>
-    </Sheet>
+          <Button
+            secondary
+            disabled={busy}
+            label="Bildirim takvimini yeniden dene"
+            onPress={() => void commit((v) => ({ ...v }))}
+          />
+        </ScrollView>
+      </SafeAreaView>
+      {choice && (
+        <Sheet
+          title={choice === "days" ? "Kaç gün önce?" : "Kaç saat önce?"}
+          onClose={() => setChoice(null)}
+        >
+          {(choice === "days" ? [0, 1, 2, 3, 7] : [1, 2, 3]).map((n) => (
+            <Button
+              key={n}
+              label={`${n} ${choice === "days" ? "gün" : "saat"} önce`}
+              disabled={busy}
+              onPress={() =>
+                void (async () => {
+                  if (
+                    await commit((v) => ({
+                      ...v,
+                      settings: {
+                        ...v.settings,
+                        ...(choice === "days"
+                          ? { daysBefore: n }
+                          : { hoursBefore: n }),
+                      },
+                    }))
+                  )
+                    setChoice(null);
+                })()
+              }
+            />
+          ))}
+        </Sheet>
+      )}
+    </Modal>
   );
 }

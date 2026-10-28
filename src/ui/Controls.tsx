@@ -1,14 +1,7 @@
 import React from "react";
-import {
-  View,
-  Text,
-  Pressable,
-  Modal,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useReducedMotion } from "./TaskTabs";
+import { selectionFeedback } from "../platform/haptics";
+import { View, Text, Pressable } from "react-native";
 import { dayKey, localDate } from "../domain/model";
 import { DateField } from "./DateField";
 import { s } from "./styles";
@@ -23,19 +16,26 @@ export function Button({
   secondary?: boolean;
   disabled?: boolean;
 }) {
+  const reduced = useReducedMotion();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}
-      onPress={onPress}
-      style={[s.button, secondary && s.secondary, disabled && { opacity: 0.5 }]}
+      onPress={() => {
+        selectionFeedback();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        s.button,
+        secondary && s.secondary,
+        {
+          opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+          transform: [{ scale: pressed && !reduced ? 0.98 : 1 }],
+        },
+      ]}
     >
-      <Text
-        style={{ color: secondary ? "#2459BF" : "white", fontWeight: "600" }}
-      >
-        {label}
-      </Text>
+      <Text style={{ color: "#18105B", fontWeight: "600" }}>{label}</Text>
     </Pressable>
   );
 }
@@ -82,36 +82,5 @@ export function Timestamp({
     </View>
   );
 }
-export function Sheet({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Modal animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={s.safe}>
-        <KeyboardAvoidingView
-          style={s.safe}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-        >
-          <View style={s.sheetHeader}>
-            <Text accessibilityRole="header" style={s.h2}>
-              {title}
-            </Text>
-            <Button label="Kapat" secondary onPress={onClose} />
-          </View>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={s.sheetBody}
-          >
-            {children}
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
-    </Modal>
-  );
-}
+
+export { Sheet } from "./Sheet";

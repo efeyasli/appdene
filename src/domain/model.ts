@@ -20,6 +20,8 @@ export type Settings = {
   summaryTime: string;
   previousDayTime: string;
   hoursBefore: number;
+  daysBefore?: number;
+  reduceMotion?: boolean;
 };
 export type State = { version: 1; tasks: Task[]; settings: Settings };
 export const emptyState = (): State => ({
@@ -63,7 +65,10 @@ export function defaultReminder(
   if (!day) return;
   const d = time
     ? new Date(localDate(day, time).getTime() - settings.hoursBefore * 3600000)
-    : localDate(dayKey(addDays(localDate(day), -1)), settings.previousDayTime);
+    : localDate(
+        dayKey(addDays(localDate(day), -(settings.daysBefore ?? 1))),
+        settings.previousDayTime,
+      );
   return d > now ? d.toISOString() : undefined;
 }
 export function createTask(
