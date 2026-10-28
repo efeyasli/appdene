@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
   ActivityIndicator,
+  AccessibilityInfo,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -40,6 +41,11 @@ import { Button, Timestamp } from "./src/ui/Controls";
 import { s } from "./src/ui/styles";
 import { TaskEditor } from "./src/ui/TaskEditor";
 import { SettingsScreen } from "./src/ui/SettingsScreen";
+import {
+  TaskTabs,
+  TaskListTransition,
+  useReducedMotion,
+} from "./src/ui/TaskTabs";
 const blue = "#356FE5";
 export default function App() {
   return (
@@ -50,6 +56,7 @@ export default function App() {
   );
 }
 function Main() {
+  const reducedMotion = useReducedMotion();
   const [state, setState] = useState<State>(emptyState),
     [ready, setReady] = useState(false),
     [error, setError] = useState(""),
@@ -130,6 +137,17 @@ function Main() {
       clearInterval(timer);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(
+      () => {
+        setNotice("");
+        setUndo(null);
+      },
+      undo ? 6000 : 3000,
+    );
+    return () => clearTimeout(timer);
+  }, [notice, undo]);
   async function commit(change: (v: State) => State): Promise<boolean> {
     if (locked.current || !repository.current) return false;
     locked.current = true;
@@ -187,7 +205,7 @@ function Main() {
       setText("");
       setOverride(null);
       setQuick(false);
-      setNotice("Kaydedildi");
+      AccessibilityInfo.announceForAccessibility("Görev eklendi");
       input.current?.focus();
     }
   }
@@ -525,37 +543,24 @@ function Main() {
               </View>
             </View>
           )}
-          <View style={s.tabs}>
-            {(["Bugün", "Yaklaşan", "Sonra"] as Tab[]).map((t) => (
-              <Pressable
-                key={t}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: tab === t }}
-                onPress={() => setTab(t)}
-                style={[s.tab, tab === t && s.activeTab]}
-              >
-                <Text
-                  style={{
-                    color: tab === t ? "#2459BF" : "#667085",
-                    fontWeight: "600",
-                  }}
-                >
-                  {t}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {rows.length ? (
-            rows.map(row)
-          ) : (
-            <Text style={s.empty}>
-              {tab === "Bugün"
-                ? "Bugün için iş yok."
-                : tab === "Yaklaşan"
-                  ? "Yaklaşan iş yok."
-                  : "Tarihsiz iş yok. Aklındakini yukarıya yaz."}
-            </Text>
-          )}
+          <TaskTabs
+            selected={tab}
+            onSelect={setTab}
+            reducedMotion={reducedMotion}
+          />
+          <TaskListTransition tab={tab} reducedMotion={reducedMotion}>
+            {rows.length ? (
+              rows.map(row)
+            ) : (
+              <Text style={s.empty}>
+                {tab === "Bugün"
+                  ? "Bugün için iş yok."
+                  : tab === "Yaklaşan"
+                    ? "Yaklaşan iş yok."
+                    : "Tarihsiz iş yok. Aklındakini yukarıya yaz."}
+              </Text>
+            )}
+          </TaskListTransition>
           <Pressable
             accessibilityRole="button"
             onPress={() => setShowDone(!showDone)}

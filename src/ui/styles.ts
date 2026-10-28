@@ -55,8 +55,6 @@ export const s = StyleSheet.create({
   },
   secondary: { backgroundColor: "#EDF4FF" },
   tabs: {
-    flexDirection: "row",
-    gap: 4,
     marginTop: 22,
     borderBottomWidth: 1,
     borderColor: "#E5E9F0",
@@ -69,7 +67,14 @@ export const s = StyleSheet.create({
     alignItems: "center",
     borderRadius: 8,
   },
-  activeTab: { backgroundColor: "#EDF4FF" },
+  tabTrack: { flexDirection: "row", position: "relative" },
+  tabIndicator: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    borderRadius: 8,
+    backgroundColor: "#EDF4FF",
+  },
   row: {
     flexDirection: "row",
     alignItems: "center",

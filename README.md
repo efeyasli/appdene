@@ -29,6 +29,8 @@ Xcode kişisel takımınızla imzalama isteyebilir. Simülatör için Mac’te `
 - Ana kutuya “Cuma ACCT quiz var” veya “Yarın 14:00’te mail at” yazıp klavyeden gönderin ya da + düğmesine basın. Boş metin kaydedilmez. Kaydetme sürerken ikinci gönderim engellenir.
 - Algılanan tarih satırına dokunup teslim ve hatırlatma zamanlarını düzeltin. Başlık ve özgün metin korunur; tarih kelimeleri başlıktan silinmez.
 - Görev satırına dokunarak başlığı, teslim tarihini/isteğe bağlı saatini, çalışma gününü, önemi ve hatırlatmayı düzenleyin. Değişiklikler **Kaydet** ile uygulanır. Erteleme de bu formda Kaydet ile uygulanır.
+- Kaydetme sonrasında ekranda başarı kartı bırakılmaz. Diğer kısa geri bildirimler 3 saniyede, geri alma içerenler 6 saniyede kapanır.
+- Sekme göstergesi ve listeler kısa native animasyonlarla geçiş yapar. Sistem “Hareketi Azalt” ayarı açıksa geçişler animasyonsuzdur.
 - Tamamlama ve silmeden sonra ana ekrandaki **Geri al** son işlemi geri getirir. Son geri alma geçicidir; uygulama yeniden açıldığında tutulmaz.
 - Bugüne ekleme teslim tarihini değiştirmez. Aynı görev bugün ve yaklaşan listelerinde görünebilir. Geciken ve geçmiş çalışma günlü işler Bugün’de kalır.
 - Tarihsiz işler Sonra’da. Tamamlananlar isteğe bağlı alt listede. Önemli & yaklaşan sırası: gecikmiş → 3 gün içinde teslim → önemli; ertelenenler süre bitene kadar bu alandan gizlenir.
@@ -86,3 +88,9 @@ Expo’nun resmi güncel dokümanlarının GitHub kaynakları incelendi (28 Ekim
 - [Native tarih/saat seçici](https://github.com/expo/expo/blob/main/docs/pages/versions/unversioned/sdk/date-time-picker.mdx)
 
 Paket sürümleri Expo’nun kurulu SDK uyumluluk tablosuyla (`expo install --offline`) seçildi ve npm lockfile’a sabitlendi. Bu TypeScript yaklaşımı ortak iş mantığını paylaşırken gerçek native kontroller, SQLite ve OS bildirimlerini kullanmamızı sağlıyor. `docs.expo.dev` bu ortamın ağ politikasıyla engellendiğinden resmi GitHub kaynakları kullanıldı. Apple’ın cihaz/sürüm bazlı gerçek teslim ve bekleyen bildirim sınırları bu ortamda ayrıca ölçülmedi; kapasite politikası ve kabul turu bu nedenle açıkça belgelenmiştir.
+
+## Sesle ekleme
+
+iPhone klavyesinin dikte mikrofonuyla görev kutusuna metin girmek mümkündür (iOS Ayarları → Genel → Klavye → Dikte’yi Etkinleştir; Türkçe klavye kullanın). Sonuç normal metin gibi tarih algılama motorundan geçer; kaydetmeden önce düzeltilebilir. Bu sistem klavyesinin özelliğidir, uygulamaya özel ses tanıma eklenmedi.
+
+Uygulama içi mikrofon için incelenen [expo-speech-recognition](https://github.com/jamsch/expo-speech-recognition) native modül ve izinler içerir; Expo Go yerine ayrı development build gerekir. Bu turda kapsam dışında bırakıldı; ücretli API veya mikrofon izni eklenmedi. Sonraki iterasyonda Türkçe konuşma, izin reddi ve cihaz desteğiyle birlikte ele alınabilir. Yeni geçişlerin ve sistem diktesinin fiziksel iPhone davranışı bu ortamda test edilmedi.
