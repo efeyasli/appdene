@@ -34,21 +34,35 @@ export function Sheet({
     latest.current = { onClose, height, reduced };
   }, [onClose, height, reduced]);
   useEffect(() => {
-    const a = Animated.timing(offset, {
-      toValue: 0,
-      duration: reduced ? 0 : 240,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    });
+    // A slightly damped spring reads as a native sheet; no bounce past the top.
+    const a = reduced
+      ? Animated.timing(offset, {
+          toValue: 0,
+          duration: 0,
+          useNativeDriver: true,
+        })
+      : Animated.spring(offset, {
+          toValue: 0,
+          damping: 26,
+          stiffness: 260,
+          mass: 1,
+          overshootClamping: true,
+          useNativeDriver: true,
+        });
     a.start();
     return () => a.stop();
   }, [offset, reduced]);
-  function dismiss() {
+  function dismiss(velocity = 0) {
     if (closing.current) return;
     closing.current = true;
+    // A fast flick closes faster, so the sheet keeps the finger's momentum.
+    const duration = latest.current.reduced
+      ? 0
+      : Math.max(120, Math.min(240, 240 - velocity * 60));
     Animated.timing(offset, {
       toValue: latest.current.height,
-      duration: latest.current.reduced ? 0 : 220,
+      duration,
+      easing: Easing.in(Easing.quad),
       useNativeDriver: true,
     }).start(({ finished }) => {
       if (finished) latest.current.onClose();
@@ -59,13 +73,19 @@ export function Sheet({
   const [pan] = useState(() =>
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && g.dy > Math.abs(g.dx),
-      onPanResponderMove: (_, g) => offset.setValue(Math.max(0, g.dy)),
+      // Dragging up past the top is resisted instead of hard-stopped.
+      onPanResponderMove: (_, g) =>
+        offset.setValue(g.dy >= 0 ? g.dy : -Math.sqrt(-g.dy) * 2),
       onPanResponderRelease: (_, g) => {
-        if (g.dy > 85 || g.vy > 0.8) dismiss();
+        if (g.dy > 85 || g.vy > 0.8) dismiss(g.vy);
+        else if (latest.current.reduced) offset.setValue(0);
         else
-          Animated.timing(offset, {
+          Animated.spring(offset, {
             toValue: 0,
-            duration: latest.current.reduced ? 0 : 200,
+            velocity: -g.vy,
+            damping: 22,
+            stiffness: 300,
+            overshootClamping: true,
             useNativeDriver: true,
           }).start();
       },
@@ -81,7 +101,7 @@ export function Sheet({
     <Modal
       transparent
       animationType="none"
-      onRequestClose={dismiss}
+      onRequestClose={() => dismiss()}
       statusBarTranslucent
     >
       <View style={{ flex: 1 }}>
@@ -101,7 +121,7 @@ export function Sheet({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Paneli kapat"
-          onPress={dismiss}
+          onPress={() => dismiss()}
           style={{ position: "absolute", inset: 0 }}
         />
         <KeyboardAvoidingView
@@ -142,7 +162,7 @@ export function Sheet({
                 <Pressable
                   accessibilityLabel="Paneli kapat"
                   accessibilityRole="button"
-                  onPress={dismiss}
+                  onPress={() => dismiss()}
                   style={s.close}
                 >
                   <Text style={{ fontSize: 25, color: "#5D47D9" }}>×</Text>
