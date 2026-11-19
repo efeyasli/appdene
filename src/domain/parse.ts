@@ -32,13 +32,54 @@ const months = [
   "kasim",
   "aralik",
 ];
+// Turkish case/possessive suffixes that commonly follow day and month names:
+// "cumaya", "pazartesiye", "salı'ya", "kasımda", "yarından", "bugünkü".
+const suffix =
+  "(?:['’]?(?:ya|ye|a|e|da|de|ta|te|dan|den|tan|ten|ki|ku|nin|nun|in|un))?";
+const word = (w: string) => new RegExp(`\\b${w}${suffix}\\b`);
+// Longest names first so "pazartesi" is not read as "pazar" + suffix.
+const dayOrder = days
+  .map((name, index) => ({ name, index }))
+  .sort((a, b) => b.name.length - a.name.length);
+const times: RegExp[] = [
+  /\b(\d{1,2}):(\d{2})(?!\d)/,
+  /\bsaat\s+(\d{1,2})(?:[.:](\d{2}))?(?!\d)/,
+];
 export function parseTurkish(text: string, now = new Date()): Parsed {
-  const s = normalize(text);
+  let s = normalize(text);
   const result: Parsed = {};
+  // Read the time first and remove it, so "14.30" is never mistaken for a date.
+  let time: RegExpMatchArray | null = null;
+  for (const re of times) {
+    time = s.match(re);
+    if (time) {
+      s = s.replace(time[0], " ");
+      break;
+    }
+  }
   // Explicit dates take precedence; validate before constructing rolled calendar dates.
-  const numeric = s.match(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{4}))?\b/);
+  let numeric = s.match(/\b(\d{1,2})[./](\d{1,2})(?:[./](\d{4}))?(?![\d./])/);
+  // Without a year, "1.5" or "3/4" is a decimal or fraction, not a date: require a two-digit part.
+  if (numeric && !numeric[3] && numeric[1].length < 2 && numeric[2].length < 2)
+    numeric = null;
+  // Without a year, an impossible dotted date that is a valid clock time ("14.30'da") is a time.
+  if (
+    numeric &&
+    !numeric[3] &&
+    !time &&
+    numeric[0].includes(".") &&
+    numeric[2].length === 2 &&
+    Number(numeric[2]) > 12 &&
+    Number(numeric[1]) <= 23 &&
+    Number(numeric[2]) <= 59
+  ) {
+    time = numeric;
+    numeric = null;
+  }
   const named = s.match(
-    new RegExp(`\\b(\\d{1,2})\\s+(${months.join("|")})(?:\\s+(\\d{4}))?\\b`),
+    new RegExp(
+      `\\b(\\d{1,2})\\s+(${months.join("|")})${suffix}(?:\\s+(\\d{4}))?\\b`,
+    ),
   );
   const match = numeric || named;
   if (match) {
@@ -58,11 +99,11 @@ export function parseTurkish(text: string, now = new Date()): Parsed {
     if (date.getMonth() !== month || date.getDate() !== day)
       return { warning: "Bu tarih gelecek yılda geçerli değil. Yılı belirt." };
     result.dueDate = dayKey(date);
-  } else if (/\bobur gun\b/.test(s)) result.dueDate = dayKey(addDays(now, 2));
-  else if (/\byarin\b/.test(s)) result.dueDate = dayKey(addDays(now, 1));
-  else if (/\bbugun\b/.test(s)) result.dueDate = dayKey(now);
+  } else if (/\bobur gun/.test(s)) result.dueDate = dayKey(addDays(now, 2));
+  else if (word("yarin").test(s)) result.dueDate = dayKey(addDays(now, 1));
+  else if (word("bugun").test(s)) result.dueDate = dayKey(now);
   else {
-    const weekday = days.findIndex((d) => new RegExp(`\\b${d}\\b`).test(s));
+    const weekday = dayOrder.find((d) => word(d.name).test(s))?.index ?? -1;
     if (weekday >= 0) {
       const next = /\b(haftaya|gelecek hafta)\b/.test(s);
       const delta = next
@@ -71,9 +112,6 @@ export function parseTurkish(text: string, now = new Date()): Parsed {
       result.dueDate = dayKey(addDays(now, delta));
     }
   }
-  const time =
-    s.match(/\b(\d{1,2}):(\d{2})\b/) ||
-    s.match(/\bsaat\s+(\d{1,2})(?:[.](\d{2}))?\b/);
   if (time) {
     const h = Number(time[1]),
       m = Number(time[2] || 0);

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
   KeyboardAvoidingView,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   LayoutAnimation,
   AccessibilityInfo,
+  Animated,
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
@@ -26,13 +27,7 @@ import {
   defaultReminder,
 } from "./src/domain/model";
 import { parseTurkish } from "./src/domain/parse";
-import {
-  attentionCandidates,
-  list,
-  status,
-  Tab,
-  futureDate,
-} from "./src/domain/selectors";
+import { attentionCandidates, list, Tab } from "./src/domain/selectors";
 import { notificationPlan, reconcile } from "./src/domain/notifications";
 import { Repository } from "./src/data/repository";
 import { openRepository } from "./src/data/sqlite";
@@ -45,7 +40,7 @@ import { SettingsScreen } from "./src/ui/SettingsScreen";
 import { TaskTabs, MotionContext, useReducedMotion } from "./src/ui/TaskTabs";
 import { AttentionCarousel } from "./src/ui/AttentionCarousel";
 import { TaskPager } from "./src/ui/TaskPager";
-import { CompletionControl } from "./src/ui/CompletionControl";
+import { TaskRow, RowActions } from "./src/ui/TaskRow";
 import { selectionFeedback } from "./src/platform/haptics";
 const accent = "#FFE68A";
 export default function App() {
@@ -56,6 +51,7 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
+type Override = { dueDate?: string; dueTime?: string; reminderAt?: string };
 function Main() {
   const [state, setState] = useState<State>(emptyState),
     [ready, setReady] = useState(false),
@@ -66,21 +62,30 @@ function Main() {
   const reducedMotion = useReducedMotion(state.settings.reduceMotion);
   const repository = useRef<Repository | null>(null),
     current = useRef(state),
-    locked = useRef(false);
+    loading = useRef(false),
+    adding = useRef(false),
+    // Writes run one after another instead of dropping taps made while saving.
+    queue = useRef<Promise<unknown>>(Promise.resolve()),
+    pendingWrites = useRef(0),
+    syncing = useRef(false),
+    syncAgain = useRef(false),
+    motion = useRef(reducedMotion);
+  useEffect(() => {
+    motion.current = reducedMotion;
+  }, [reducedMotion]);
   const [text, setText] = useState(""),
     [tab, setTab] = useState<Tab>("Bugün"),
     [quick, setQuick] = useState(false),
-    [override, setOverride] = useState<{
-      dueDate?: string;
-      dueTime?: string;
-      reminderAt?: string;
-    } | null>(null);
+    // Set only when the user picks a date/reminder by hand; typing keeps it.
+    [override, setOverride] = useState<Override | null>(null);
   const [editing, setEditing] = useState<Task | null>(null),
     [settings, setSettings] = useState(false),
     [permission, setPermission] = useState(false),
     [showDone, setShowDone] = useState(false),
     [undo, setUndo] = useState<Task | null>(null);
   const input = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const [scrollX] = useState(() => new Animated.Value(0)),
+    [pagerWidth, setPagerWidth] = useState(0);
   async function sync(value: State) {
     try {
       const result = await reconcile(driver, value, new Date());
@@ -99,9 +104,25 @@ function Main() {
       );
     }
   }
+  // Notification scheduling runs after the write, off the tap's critical path.
+  // Bursts of edits collapse into one more pass over the latest state.
+  function requestSync() {
+    if (syncing.current) {
+      syncAgain.current = true;
+      return;
+    }
+    syncing.current = true;
+    void (async () => {
+      do {
+        syncAgain.current = false;
+        await sync(current.current);
+      } while (syncAgain.current);
+      syncing.current = false;
+    })();
+  }
   async function load() {
-    if (locked.current) return;
-    locked.current = true;
+    if (loading.current) return;
+    loading.current = true;
     try {
       const repo = await openRepository();
       repository.current = repo;
@@ -109,12 +130,12 @@ function Main() {
       current.current = value;
       setState(value);
       setError("");
-      await sync(value);
       setReady(true);
+      requestSync();
     } catch {
       setError("Veriler açılamadı. Mevcut veriler korunuyor; yeniden dene.");
     } finally {
-      locked.current = false;
+      loading.current = false;
     }
   }
   useEffect(() => {
@@ -122,14 +143,7 @@ function Main() {
     const sub = AppState.addEventListener("change", (v) => {
       if (v === "active") {
         setNow(new Date());
-        if (repository.current && !locked.current) {
-          locked.current = true;
-          setBusy(true);
-          void sync(current.current).finally(() => {
-            locked.current = false;
-            setBusy(false);
-          });
-        }
+        if (repository.current) requestSync();
       }
     });
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -149,40 +163,59 @@ function Main() {
     );
     return () => clearTimeout(timer);
   }, [notice, undo]);
-  async function commit(change: (v: State) => State): Promise<boolean> {
-    if (locked.current || !repository.current) return false;
-    locked.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const value = change(current.current);
+  function animateNext() {
+    if (!motion.current)
+      LayoutAnimation.configureNext({
+        duration: 220,
+        update: { type: "easeInEaseOut" },
+        delete: { type: "easeInEaseOut", property: "opacity" },
+        create: { type: "easeInEaseOut", property: "opacity" },
+      });
+  }
+  // Optimistic: the screen updates immediately, the write follows, and a
+  // failed write puts the previous state back and says so.
+  function commit(change: (v: State) => State): Promise<boolean> {
+    const repo = repository.current;
+    if (!repo) return Promise.resolve(false);
+    const run = async () => {
+      const previous = current.current;
+      const value = change(previous);
       const plan = notificationPlan(value, new Date());
       const ids = new Set(plan.notices.map((n) => n.id));
       value.tasks = value.tasks.map((t) => ({
         ...t,
         notificationIds: ids.has(`task:${t.id}`) ? [`task:${t.id}`] : [],
       }));
-      await repository.current.save(value);
       current.current = value;
-      if (!reducedMotion)
-        LayoutAnimation.configureNext({
-          duration: 220,
-          update: { type: "easeInEaseOut" },
-          delete: { type: "easeInEaseOut", property: "opacity" },
-          create: { type: "easeInEaseOut", property: "opacity" },
-        });
+      setError("");
+      animateNext();
       setState(value);
       setNow(new Date());
-      await sync(value);
-      return true;
-    } catch {
-      setError("Kaydedilemedi. Girdiğin bilgiler korundu; yeniden dene.");
-      return false;
-    } finally {
-      locked.current = false;
-      setBusy(false);
-    }
+      try {
+        await repo.save(value);
+        requestSync();
+        return true;
+      } catch {
+        if (current.current === value) {
+          current.current = previous;
+          animateNext();
+          setState(previous);
+        }
+        setError("Kaydedilemedi. Girdiğin bilgiler korundu; yeniden dene.");
+        return false;
+      }
+    };
+    pendingWrites.current++;
+    setBusy(true);
+    const result = queue.current.then(run).finally(() => {
+      if (--pendingWrites.current === 0) setBusy(false);
+    });
+    queue.current = result.catch(() => {});
+    return result;
   }
+  // Complete/delete act on the saved task, never on an unsaved editor draft.
+  const stored = (t: Task) =>
+    current.current.tasks.find((x) => x.id === t.id) ?? t;
   async function patch(task: Task) {
     return commit((v) => ({
       ...v,
@@ -191,33 +224,44 @@ function Main() {
       ),
     }));
   }
-  const parsed = parseTurkish(text, now),
+  const parsed = useMemo(() => parseTurkish(text, now), [text, now]),
     due = override || parsed;
   const reminder = override
     ? override.reminderAt
     : defaultReminder(parsed.dueDate, parsed.dueTime, state.settings, now);
   async function add() {
-    if (!text.trim() || locked.current) return;
-    const task = {
-      ...createTask(
-        text,
-        {
-          dueDate: due.dueDate,
-          dueTime: due.dueDate ? due.dueTime : undefined,
-        },
-        state.settings,
-      ),
-      reminderAt: reminder,
-    };
-    if (await commit((v) => ({ ...v, tasks: [...v.tasks, task] }))) {
+    if (!text.trim() || adding.current) return;
+    adding.current = true;
+    try {
+      const task = {
+        ...createTask(
+          text,
+          {
+            dueDate: due.dueDate,
+            dueTime: due.dueDate ? due.dueTime : undefined,
+          },
+          state.settings,
+        ),
+        reminderAt: reminder,
+      };
+      const entered = text,
+        chosen = override;
       setText("");
       setOverride(null);
       setQuick(false);
-      AccessibilityInfo.announceForAccessibility("Görev eklendi");
-      input.current?.focus();
+      if (await commit((v) => ({ ...v, tasks: [...v.tasks, task] }))) {
+        AccessibilityInfo.announceForAccessibility("Görev eklendi");
+        input.current?.focus();
+      } else {
+        setText((t) => t || entered);
+        setOverride((o) => o ?? chosen);
+      }
+    } finally {
+      adding.current = false;
     }
   }
-  async function complete(t: Task) {
+  async function complete(draft: Task) {
+    const t = stored(draft);
     if (
       await patch({
         ...t,
@@ -230,7 +274,9 @@ function Main() {
     }
     return false;
   }
-  async function remove(t: Task) {
+  async function remove(draft: Task) {
+    const t = stored(draft);
+    setEditing(null);
     if (
       await commit((v) => ({
         ...v,
@@ -239,93 +285,74 @@ function Main() {
     ) {
       setUndo(t);
       setNotice("Silindi");
-      setEditing(null);
     }
   }
   async function restore() {
     if (!undo) return;
     const previous = undo;
+    setUndo(null);
     if (
       await commit((v) => ({
         ...v,
         tasks: [...v.tasks.filter((t) => t.id !== previous.id), previous],
       }))
-    ) {
-      setUndo(null);
+    )
       setNotice("Geri alındı");
-    }
   }
   async function snooze(t: Task) {
     const at = localDate(
       dayKey(addDays(new Date(), 1)),
       state.settings.summaryTime,
     ).toISOString();
-    if (await patch({ ...t, reminderAt: at, snoozedUntil: at })) {
+    if (await patch({ ...stored(t), reminderAt: at, snoozedUntil: at })) {
       setNotice(`Yarın ${state.settings.summaryTime} için hatırlatma seçildi`);
     }
   }
-  const focus = attentionCandidates(state.tasks, now).slice(0, 5);
-  function row(t: Task, page: Tab = tab) {
-    return (
-      <View key={t.id} style={s.row}>
-        <CompletionControl
-          completed={!!t.completedAt}
-          label={`${t.title} ${t.completedAt ? "yeniden aç" : "tamamla"}`}
-          reduced={reducedMotion}
-          onComplete={() => complete(t)}
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${t.title}, ayrıntıları düzenle`}
-          onPress={() => setEditing({ ...t })}
-          style={{ flex: 1, paddingVertical: 13 }}
-        >
-          <Text
-            style={[
-              s.taskTitle,
-              t.completedAt && {
-                textDecorationLine: "line-through",
-                color: "#7065AC",
-              },
-            ]}
-          >
-            {t.title}
-          </Text>
-          <Text style={s.meta}>
-            {[
-              status(t, now),
-              t.dueDate
-                ? `Teslim: ${dateLabel(t.dueDate)}${t.dueTime ? " " + t.dueTime : ""}`
-                : "",
-              t.plannedDate ? `Çalışma: ${dateLabel(t.plannedDate)}` : "",
-              t.reminderAt
-                ? `Hatırlatma: ${new Date(t.reminderAt).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`
-                : "",
-            ]
-              .filter(Boolean)
-              .join(" · ") || "Tarihsiz"}
-          </Text>
-          {page === "Yaklaşan" && (
-            <Text style={s.meta}>
-              Sıradaki tarih: {dateLabel(futureDate(t, dayKey(now)))}
-            </Text>
-          )}
-        </Pressable>
-        <Pressable
-          accessibilityLabel={t.important ? "Önemi kaldır" : "Önemli işaretle"}
-          accessibilityRole="button"
-          onPress={() => void patch({ ...t, important: !t.important })}
-          style={s.check}
-        >
-          <Text
-            style={{ fontSize: 24, color: t.important ? "#D0A320" : "#7065AC" }}
-          >
-            {t.important ? "★" : "☆"}
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
+  // Stable callbacks for memoized rows; they always call the latest handlers.
+  const latest = useRef({ complete, patch, snooze, stored });
+  useEffect(() => {
+    latest.current = { complete, patch, snooze, stored };
+  });
+  const rowActions = useMemo<RowActions>(
+    () => ({
+      open: (t) => setEditing({ ...t }),
+      complete: (t) => latest.current.complete(t),
+      toggleImportant: (t) => {
+        const x = latest.current.stored(t);
+        void latest.current.patch({ ...x, important: !x.important });
+      },
+    }),
+    [],
+  );
+  const today = dayKey(now);
+  const focus = useMemo(
+    () => attentionCandidates(state.tasks, now).slice(0, 5),
+    [state.tasks, now],
+  );
+  const pages = useMemo(
+    () =>
+      Object.fromEntries(
+        (["Bugün", "Yaklaşan", "Sonra"] as Tab[]).map((p) => [
+          p,
+          list(state.tasks, p, localDate(today, "12:00")),
+        ]),
+      ) as Record<Tab, Task[]>,
+    [state.tasks, today],
+  );
+  const done = useMemo(
+    () => state.tasks.filter((t) => t.completedAt),
+    [state.tasks],
+  );
+  const row = (t: Task, page?: Tab) => (
+    <TaskRow
+      key={t.id}
+      task={t}
+      today={today}
+      page={page}
+      reduced={reducedMotion}
+      actions={rowActions}
+    />
+  );
   if (!ready)
     return (
       <SafeAreaView style={[s.safe, { padding: 24, justifyContent: "center" }]}>
@@ -380,7 +407,7 @@ function Main() {
                 value={text}
                 onChangeText={(v) => {
                   setText(v);
-                  setOverride(null);
+                  if (!v) setOverride(null);
                 }}
                 onSubmitEditing={() => void add()}
                 submitBehavior="submit"
@@ -390,25 +417,21 @@ function Main() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Görevi ekle"
-                disabled={busy || !text.trim()}
+                disabled={!text.trim()}
                 onPress={() => void add()}
-                style={[s.add, (busy || !text.trim()) && { opacity: 0.45 }]}
+                style={[s.add, !text.trim() && { opacity: 0.45 }]}
               >
                 <Text style={{ fontSize: 27, color: "#5D47D9" }}>↑</Text>
               </Pressable>
             </View>
             {!!text && (
               <Pressable
-                onPress={() => {
-                  if (!override)
-                    setOverride({
-                      dueDate: parsed.dueDate,
-                      dueTime: parsed.dueTime,
-                      reminderAt: reminder,
-                    });
-                  setQuick(!quick);
-                }}
-                style={{ paddingVertical: 10, minHeight: 44 }}
+                onPress={() => setQuick(true)}
+                style={({ pressed }) => ({
+                  paddingVertical: 10,
+                  minHeight: 44,
+                  opacity: pressed ? 0.6 : 1,
+                })}
                 accessibilityLabel="Algılanan tarihi ve hatırlatmayı düzelt"
               >
                 <Text style={[s.meta, { color: "#E5DEFF" }]}>
@@ -418,13 +441,24 @@ function Main() {
                   {due.dueDate
                     ? ` · Hatırlatma: ${reminder ? new Date(reminder).toLocaleString("tr-TR") : "seçilmedi"}`
                     : ""}{" "}
-                  · Düzenle
+                  · {override ? "Elle seçildi · Düzenle" : "Düzenle"}
                 </Text>
-                {parsed.warning && due.dueDate && (
+                {!override && parsed.warning && due.dueDate && (
                   <Text style={[s.meta, { color: "#E5DEFF" }]}>
                     {parsed.warning}
                   </Text>
                 )}
+              </Pressable>
+            )}
+            {!!text && override && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setOverride(null)}
+                style={{ paddingBottom: 8, minHeight: 32 }}
+              >
+                <Text style={[s.meta, { color: "#FFE68A" }]}>
+                  Metinden algılanan tarihe dön
+                </Text>
               </Pressable>
             )}
             {quick && (
@@ -437,7 +471,6 @@ function Main() {
                   value={due.dueDate}
                   onChange={(d) =>
                     setOverride({
-                      ...override,
                       dueDate: d,
                       dueTime: d ? due.dueTime : undefined,
                       reminderAt: defaultReminder(
@@ -456,7 +489,6 @@ function Main() {
                     value={due.dueTime}
                     onChange={(t) =>
                       setOverride({
-                        ...override,
                         dueDate: due.dueDate,
                         dueTime: t,
                         reminderAt: defaultReminder(
@@ -522,11 +554,15 @@ function Main() {
               now={now}
               reduced={reducedMotion}
               onOpen={(t) => setEditing({ ...t })}
-              onToday={(t) => void patch({ ...t, plannedDate: dayKey(now) })}
+              onToday={(t) =>
+                void patch({ ...stored(t), plannedDate: dayKey(now) })
+              }
               onSnooze={(t) => void snooze(t)}
             />
             <TaskTabs
               selected={tab}
+              scrollX={scrollX}
+              pagerWidth={pagerWidth}
               onSelect={(t) => {
                 if (t !== tab) selectionFeedback();
                 setTab(t);
@@ -537,8 +573,10 @@ function Main() {
               selected={tab}
               onSelect={setTab}
               reduced={reducedMotion}
+              scrollX={scrollX}
+              onWidth={setPagerWidth}
               renderPage={(page) => {
-                const rows = list(state.tasks, page, now);
+                const rows = pages[page];
                 return (
                   <View style={s.taskCard}>
                     <View style={s.setting}>
@@ -573,13 +611,11 @@ function Main() {
             >
               <Text style={[s.meta, { color: "#E5DEFF" }]}>
                 {showDone ? "Tamamlananları gizle" : "Tamamlananları göster"} (
-                {state.tasks.filter((t) => t.completedAt).length})
+                {done.length})
               </Text>
             </Pressable>
             {showDone && (
-              <View style={s.taskCard}>
-                {state.tasks.filter((t) => t.completedAt).map((t) => row(t))}
-              </View>
+              <View style={s.taskCard}>{done.map((t) => row(t))}</View>
             )}
           </ScrollView>
         </KeyboardAvoidingView>

@@ -321,3 +321,54 @@ test("attention carousel keeps priority order, excludes completed and snoozed ta
     candidates[0].id,
   );
 });
+test("dotted times are not dates; decimals and fractions are not dates; Turkish suffixes are read", () => {
+  assert.deepEqual(parse("Yarın saat 14.30 toplantı", now), {
+    dueDate: "2026-10-28",
+    dueTime: "14:30",
+  });
+  assert.equal(parse("yarın 14.30'da", now).dueTime, "14:30");
+  assert.equal(parse("Yarın 14:00te", now).dueTime, "14:00");
+  assert.equal(parse("1.5 saat çalış", now).dueDate, undefined);
+  assert.equal(parse("3/4 bölümü oku", now).dueDate, undefined);
+  assert.equal(parse("2.11", now).dueDate, "2026-11-02");
+  assert.equal(parse("02.11'de", now).dueDate, "2026-11-02");
+  assert.equal(parse("Pazartesiye kadar rapor", now).dueDate, "2026-11-02");
+  assert.equal(parse("cumaya", now).dueDate, "2026-10-30");
+  assert.equal(parse("cumartesiye", now).dueDate, "2026-10-31");
+  assert.equal(parse("pazara", now).dueDate, "2026-11-01");
+  assert.equal(parse("14 kasımda sınav", now).dueDate, "2026-11-14");
+  assert.equal(parse("yarına", now).dueDate, "2026-10-28");
+});
+test("reconcile leaves unchanged notifications alone and replaces changed ones", async () => {
+  const pending = new Map<string, Notice>();
+  let scheduled = 0,
+    cancelled = 0;
+  const d: NotificationDriver = {
+    allowed: async () => true,
+    pending: async () => [...pending.keys(), "other-app:1"],
+    cancel: async (id) => {
+      cancelled++;
+      pending.delete(id);
+    },
+    schedule: async (n) => {
+      scheduled++;
+      pending.set(n.id, n);
+    },
+  };
+  const state = emptyState();
+  state.settings.notifications = true;
+  const a = task("cuma quiz"),
+    b = task("yarın mail 14:00");
+  state.tasks = [a, b];
+  await reconcile(d, state, now);
+  assert.equal(scheduled, 2);
+  await reconcile(d, state, now);
+  assert.equal(scheduled, 2);
+  assert.equal(cancelled, 0);
+  state.tasks = [{ ...a, title: "cuma quiz çalış" }, b];
+  await reconcile(d, state, now);
+  assert.equal(scheduled, 3);
+  assert.equal(cancelled, 1);
+  assert.equal(pending.get(`task:${a.id}`)?.body, "cuma quiz çalış");
+  assert.equal(pending.size, 2);
+});

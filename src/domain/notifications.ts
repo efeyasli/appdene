@@ -72,20 +72,41 @@ export interface NotificationDriver {
   cancel(id: string): Promise<void>;
   schedule(n: Notice): Promise<void>;
 }
+const signature = (n: Notice) => `${n.at}|${n.title}|${n.body}`;
+// What this app scheduled per driver, so unchanged notifications are not
+// cancelled and rescheduled on every edit. Empty after a restart, which makes
+// the first reconcile rebuild the whole queue (the safe default).
+const scheduled = new WeakMap<NotificationDriver, Map<string, string>>();
 export async function reconcile(
   driver: NotificationDriver,
   state: State,
   now: Date,
 ): Promise<{ overflow: number; denied: boolean }> {
   const { notices, overflow } = notificationPlan(state, now);
+  const cache = scheduled.get(driver) ?? new Map<string, string>();
+  scheduled.set(driver, cache);
   // Reconcile the complete app-owned queue, including orphan IDs after interrupted writes.
-  const ids = await driver.pending();
-  for (const id of ids.filter(
+  const owned = (await driver.pending()).filter(
     (id) => id.startsWith("task:") || id.startsWith("summary:"),
-  ))
-    await driver.cancel(id);
-  if (!state.settings.notifications) return { overflow: 0, denied: false };
-  if (!(await driver.allowed())) return { overflow, denied: true };
-  for (const notice of notices) await driver.schedule(notice);
-  return { overflow, denied: false };
+  );
+  const enabled = state.settings.notifications;
+  const denied = enabled && !(await driver.allowed());
+  const wanted = new Map(
+    enabled && !denied ? notices.map((n) => [n.id, signature(n)]) : [],
+  );
+  const live = new Set<string>();
+  for (const id of owned) {
+    if (wanted.has(id) && wanted.get(id) === cache.get(id)) live.add(id);
+    else {
+      await driver.cancel(id);
+      cache.delete(id);
+    }
+  }
+  for (const id of [...cache.keys()]) if (!live.has(id)) cache.delete(id);
+  for (const notice of notices) {
+    if (!wanted.has(notice.id) || live.has(notice.id)) continue;
+    await driver.schedule(notice);
+    cache.set(notice.id, signature(notice));
+  }
+  return { overflow: enabled ? overflow : 0, denied };
 }
