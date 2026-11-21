@@ -54,14 +54,21 @@ export function TaskTabs({
   selected,
   onSelect,
   reducedMotion,
+  scrollX,
+  pagerWidth = 0,
 }: {
   selected: Tab;
   onSelect: (tab: Tab) => void;
   reducedMotion: boolean;
+  /** Horizontal offset of the task pager; the indicator follows the finger. */
+  scrollX?: Animated.Value;
+  pagerWidth?: number;
 }) {
   const [width, setWidth] = useState(0);
   const [position] = useState(() => new Animated.Value(0));
+  const tracking = !!scrollX && pagerWidth > 0 && width > 0;
   useLayoutEffect(() => {
+    if (tracking) return;
     position.stopAnimation();
     const target = (tabs.indexOf(selected) * width) / tabs.length;
     if (reducedMotion || width === 0) {
@@ -76,7 +83,14 @@ export function TaskTabs({
     });
     animation.start();
     return () => animation.stop();
-  }, [selected, width, reducedMotion, position]);
+  }, [selected, width, reducedMotion, position, tracking]);
+  const translateX = tracking
+    ? scrollX!.interpolate({
+        inputRange: [0, pagerWidth * (tabs.length - 1)],
+        outputRange: [0, (width * (tabs.length - 1)) / tabs.length],
+        extrapolate: "clamp",
+      })
+    : position;
 
   return (
     <View style={s.tabs}>
@@ -91,7 +105,7 @@ export function TaskTabs({
               s.tabIndicator,
               {
                 width: width / tabs.length,
-                transform: [{ translateX: position }],
+                transform: [{ translateX }],
               },
             ]}
           />

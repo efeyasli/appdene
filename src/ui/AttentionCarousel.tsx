@@ -57,15 +57,18 @@ export function AttentionCarousel({
         showsHorizontalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingRight: width * 0.06 }}
-        onMomentumScrollEnd={(e) => {
+        // The dot follows the card under the finger, with one haptic tick per card.
+        scrollEventThrottle={32}
+        onScroll={(e) => {
           if (!step) return;
-          setActive(
-            Math.min(
-              tasks.length - 1,
-              Math.max(0, Math.round(e.nativeEvent.contentOffset.x / step)),
-            ),
+          const i = Math.min(
+            tasks.length - 1,
+            Math.max(0, Math.round(e.nativeEvent.contentOffset.x / step)),
           );
-          selectionFeedback();
+          if (i !== active) {
+            setActive(i);
+            selectionFeedback();
+          }
         }}
       >
         {width > 0 &&
@@ -83,7 +86,10 @@ export function AttentionCarousel({
               <Pressable
                 accessibilityRole="button"
                 onPress={() => onOpen(t)}
-                style={{ paddingVertical: 14 }}
+                style={({ pressed }) => ({
+                  paddingVertical: 14,
+                  opacity: pressed ? 0.6 : 1,
+                })}
               >
                 <Text style={s.taskTitle} numberOfLines={2}>
                   {t.title}
@@ -133,7 +139,7 @@ export function AttentionCarousel({
             accessibilityLabel={`${i + 1}. önemli görev`}
             accessibilityState={{ selected: i === active }}
             onPress={() => {
-              selectionFeedback();
+              if (i !== active) selectionFeedback();
               setActive(i);
               scroll.current?.scrollTo({ x: i * step, animated: !reduced });
             }}

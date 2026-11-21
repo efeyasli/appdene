@@ -87,6 +87,12 @@ export const s = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: "#E6DFF5",
   },
+  rowBody: {
+    flex: 1,
+    paddingVertical: 13,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+  },
   check: {
     minWidth: 44,
     minHeight: 48,
