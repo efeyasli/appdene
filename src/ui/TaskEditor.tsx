@@ -12,6 +12,7 @@ import { Button, Sheet } from "./Controls";
 import { DateField } from "./DateField";
 import { ReminderField } from "./ReminderField";
 import { s } from "./styles";
+import { c } from "./theme";
 type Props = {
   task: Task;
   setTask: (t: Task | null) => void;
@@ -39,7 +40,7 @@ export function TaskEditor({
   return (
     <Sheet title="Görev ayrıntısı" onClose={() => setTask(null)}>
       {!!error && (
-        <Text accessibilityRole="alert" style={{ color: "#A02F28" }}>
+        <Text accessibilityRole="alert" style={{ color: c.danger }}>
           {error}
         </Text>
       )}
@@ -56,7 +57,7 @@ export function TaskEditor({
         <Text style={s.taskTitle}>★ Önemli</Text>
         <Switch
           accessibilityLabel="Önemli"
-          trackColor={{ true: "#5D47D9" }}
+          trackColor={{ true: c.blue }}
           value={task.important}
           onValueChange={(important) => setTask({ ...task, important })}
         />

@@ -8,6 +8,7 @@ import { Sheet } from "./Sheet";
 import { Button, Timestamp } from "./Controls";
 import { selectionFeedback } from "../platform/haptics";
 import { s } from "./styles";
+import { c } from "./theme";
 export function ReminderField({
   dueDate,
   value,
@@ -87,7 +88,7 @@ export function ReminderField({
               accessibilityLabel="Hatırlat"
               value={enabled}
               onValueChange={setEnabled}
-              trackColor={{ true: "#5D47D9" }}
+              trackColor={{ true: c.blue }}
             />
           </View>
           {enabled && (
@@ -110,9 +111,9 @@ export function ReminderField({
                       step={1}
                       value={index}
                       onValueChange={choose}
-                      minimumTrackTintColor="#5D47D9"
-                      maximumTrackTintColor="#C7BDEB"
-                      thumbTintColor="#5D47D9"
+                      minimumTrackTintColor={c.blue}
+                      maximumTrackTintColor={c.line}
+                      thumbTintColor={c.blue}
                       style={{ height: 44 }}
                     />
                     <View
@@ -134,7 +135,7 @@ export function ReminderField({
                             justifyContent: "center",
                           }}
                         >
-                          <Text style={{ fontSize: 12, color: "#18105B" }}>
+                          <Text style={{ fontSize: 12, color: c.navy }}>
                             {n === 0 ? "Aynı gün" : `${n} gün`}
                           </Text>
                         </Pressable>
@@ -148,7 +149,7 @@ export function ReminderField({
                     display={Platform.OS === "ios" ? "spinner" : "default"}
                     locale="tr-TR"
                     is24Hour
-                    textColor="#18105B"
+                    textColor={c.navy}
                     onChange={(e, d) => {
                       if (e.type === "set" && d)
                         setTime(
@@ -183,7 +184,7 @@ export function ReminderField({
                   : "Bir hatırlatma tarihi seç"}
               </Text>
               {at && new Date(at) <= new Date() && (
-                <Text style={{ color: "#A02F28" }}>
+                <Text style={{ color: c.danger }}>
                   Bu zaman geçmişte; gelecekte bir zaman seç.
                 </Text>
               )}

@@ -10,11 +10,14 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { StatusBar } from "expo-status-bar";
 import { State } from "../domain/model";
 import { allowed, requestNotifications } from "../platform/notifications";
 import { Button, Sheet } from "./Controls";
 import { DateField } from "./DateField";
 import { s } from "./styles";
+import { c } from "./theme";
 import { useReducedMotion } from "./TaskTabs";
 import { selectionFeedback } from "../platform/haptics";
 type Props = {
@@ -66,7 +69,7 @@ export function SettingsScreen({
     <View style={s.fieldRow}>
       <Text style={[s.taskTitle, { flex: 1 }]}>{label}</Text>
       <Switch
-        trackColor={{ true: "#5D47D9" }}
+        trackColor={{ true: c.blue }}
         accessibilityLabel={label}
         value={value}
         disabled={disabled || busy}
@@ -79,25 +82,16 @@ export function SettingsScreen({
   );
   const section = (title: string, children: React.ReactNode) => (
     <>
-      <Text
-        style={{
-          fontSize: 18,
-          fontWeight: "600",
-          color: "white",
-          marginTop: 22,
-          marginBottom: 12,
-        }}
-      >
-        {title}
-      </Text>
+      <Text style={s.section}>{title}</Text>
       <View style={s.taskCard}>{children}</View>
     </>
   );
   return (
     <Modal animationType={reduced ? "none" : "slide"} onRequestClose={onClose}>
+      <StatusBar style="dark" />
       <SafeAreaView style={s.safe}>
         <ScrollView
-          contentContainerStyle={s.body}
+          contentContainerStyle={[s.body, { paddingHorizontal: 16 }]}
           keyboardShouldPersistTaps="handled"
         >
           <View style={s.header}>
@@ -107,14 +101,16 @@ export function SettingsScreen({
               onPress={onClose}
               style={s.check}
             >
-              <Text style={{ fontSize: 32, color: "white" }}>‹</Text>
+              <Ionicons name="chevron-back" size={26} color={c.navy} />
             </Pressable>
-            <Text style={[s.title, { flex: 1 }]}>Ayarlar</Text>
+            <Text style={[s.title, { flex: 1, color: c.navy }]}>Ayarlar</Text>
           </View>
           {!!error && (
-            <Text accessibilityRole="alert" style={s.feedback}>
-              {error}
-            </Text>
+            <View style={s.error}>
+              <Text accessibilityRole="alert" style={s.errorText}>
+                {error}
+              </Text>
+            </View>
           )}
           {section(
             "Bildirimler",
@@ -152,7 +148,7 @@ export function SettingsScreen({
               </Text>
             </>,
           )}
-          <Text style={{ color: "#E5DEFF", marginTop: 10, lineHeight: 20 }}>
+          <Text style={[s.meta, { marginTop: 10, marginHorizontal: 4 }]}>
             Bugünün işleri ve yaklaşan teslimler. Özet, uygulama açıldığında
             sonraki 7 gün için güncellenir.
           </Text>
@@ -211,7 +207,7 @@ export function SettingsScreen({
               </Text>
             </>,
           )}
-          <Text style={{ color: "#E5DEFF", marginVertical: 16 }}>
+          <Text style={[s.meta, { marginVertical: 16, marginHorizontal: 4 }]}>
             Verilerin bu cihazda saklanır.
           </Text>
           <Button

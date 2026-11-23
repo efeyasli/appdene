@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useReducedMotion } from "./TaskTabs";
 import { s } from "./styles";
+import { c } from "./theme";
 export function Sheet({
   title,
   onClose,
@@ -110,7 +111,7 @@ export function Sheet({
           style={{
             position: "absolute",
             inset: 0,
-            backgroundColor: "#100B38",
+            backgroundColor: c.scrim,
             opacity: offset.interpolate({
               inputRange: [0, height],
               outputRange: [0.42, 0],
@@ -137,7 +138,7 @@ export function Sheet({
             accessibilityViewIsModal
             style={{
               maxHeight: height - insets.top - 20,
-              backgroundColor: "white",
+              backgroundColor: c.white,
               borderTopLeftRadius: 28,
               borderTopRightRadius: 28,
               paddingBottom: insets.bottom,
@@ -149,7 +150,7 @@ export function Sheet({
                 style={{
                   width: 44,
                   height: 5,
-                  backgroundColor: "#CFC6EB",
+                  backgroundColor: c.line,
                   borderRadius: 4,
                   alignSelf: "center",
                   marginTop: 10,
@@ -165,7 +166,7 @@ export function Sheet({
                   onPress={() => dismiss()}
                   style={s.close}
                 >
-                  <Text style={{ fontSize: 25, color: "#5D47D9" }}>×</Text>
+                  <Text style={{ fontSize: 25, color: c.blue }}>×</Text>
                 </Pressable>
               </View>
             </View>

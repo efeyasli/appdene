@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, Pressable, Text } from "react-native";
+import { Animated, Pressable } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { successFeedback } from "../platform/haptics";
+import { c } from "./theme";
 export function CompletionControl({
   completed,
   label,
@@ -66,20 +68,20 @@ export function CompletionControl({
     >
       <Animated.View
         style={{
-          width: 25,
-          height: 25,
-          borderWidth: 1.5,
-          borderColor: "#5D47D9",
-          backgroundColor: completed || pending ? "#E5DEFF" : "transparent",
-          borderRadius: 8,
+          width: 24,
+          height: 24,
+          borderWidth: 2,
+          borderColor: completed || pending ? c.blue : "#B9C6DB",
+          backgroundColor: completed || pending ? c.blue : "transparent",
+          borderRadius: 12,
           alignItems: "center",
           justifyContent: "center",
           transform: [{ scale }],
         }}
       >
-        <Text style={{ color: "#5D47D9", fontSize: 18 }}>
-          {completed || pending ? "✓" : ""}
-        </Text>
+        {(completed || pending) && (
+          <Ionicons name="checkmark" size={15} color={c.white} />
+        )}
       </Animated.View>
     </Pressable>
   );

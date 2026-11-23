@@ -6,6 +6,7 @@ import { calendarDays } from "../domain/reminder";
 import { Sheet } from "./Sheet";
 import { selectionFeedback } from "../platform/haptics";
 import { s } from "./styles";
+import { c, f } from "./theme";
 export function DateField({
   label,
   value,
@@ -43,7 +44,7 @@ export function DateField({
         },
       ]}
     >
-      <Text style={{ color: "#18105B", fontWeight: "600" }}>{title}</Text>
+      <Text style={primary ? s.buttonText : s.secondaryText}>{title}</Text>
     </Pressable>
   );
   return (
@@ -64,7 +65,7 @@ export function DateField({
             {value ? (time ? value : dateLabel(value)) : "Belirtilmedi"}
           </Text>
         </View>
-        <Text style={{ fontSize: 24, color: "#7065AC" }}>›</Text>
+        <Text style={{ fontSize: 24, color: c.slate }}>›</Text>
       </Pressable>
       {open && (
         <Sheet title={label} onClose={() => setOpen(false)}>
@@ -130,20 +131,21 @@ export function DateField({
                       alignItems: "center",
                       justifyContent: "center",
                       borderRadius: 22,
-                      backgroundColor: d === draft ? "#5D47D9" : "transparent",
+                      backgroundColor: d === draft ? c.blue : "transparent",
                       borderWidth: d === dayKey(new Date()) ? 1 : 0,
-                      borderColor: "#5D47D9",
+                      borderColor: c.blue,
                     }}
                   >
                     <Text
                       style={{
-                        fontSize: 17,
+                        fontSize: 16,
+                        fontFamily: f.semibold,
                         color:
                           d === draft
-                            ? "white"
+                            ? c.white
                             : d.slice(0, 7) === month.slice(0, 7)
-                              ? "#18105B"
-                              : "#A49AC4",
+                              ? c.navy
+                              : c.slate,
                       }}
                     >
                       {Number(d.slice(-2))}
@@ -160,7 +162,7 @@ export function DateField({
               display={Platform.OS === "ios" ? "spinner" : "default"}
               locale="tr-TR"
               is24Hour
-              textColor="#18105B"
+              textColor={c.navy}
               onChange={(event, d) => {
                 if (event.type === "set" && d)
                   setDraft(
@@ -174,7 +176,12 @@ export function DateField({
           <Text
             style={[
               s.inset,
-              { textAlign: "center", fontSize: 18, color: "#18105B" },
+              {
+                textAlign: "center",
+                fontSize: 18,
+                color: c.navy,
+                fontFamily: f.bold,
+              },
             ]}
           >
             {time ? draft : dateLabel(draft)}
