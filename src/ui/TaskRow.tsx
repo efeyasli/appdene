@@ -4,6 +4,7 @@ import { Task, dateLabel, localDate } from "../domain/model";
 import { Tab, futureDate, status } from "../domain/selectors";
 import { CompletionControl } from "./CompletionControl";
 import { s } from "./styles";
+import { c } from "./theme";
 
 export type RowActions = {
   open: (t: Task) => void;
@@ -54,7 +55,7 @@ export const TaskRow = memo(function TaskRow({
         onPress={() => actions.open(t)}
         style={({ pressed }) => [
           s.rowBody,
-          pressed && { backgroundColor: "#F4F0FF" },
+          pressed && { backgroundColor: c.pressed },
         ]}
       >
         <Text
@@ -62,13 +63,22 @@ export const TaskRow = memo(function TaskRow({
             s.taskTitle,
             t.completedAt && {
               textDecorationLine: "line-through",
-              color: "#7065AC",
+              color: c.slate,
             },
           ]}
         >
           {t.title}
         </Text>
-        <Text style={s.meta}>{meta}</Text>
+        <Text
+          style={[
+            s.meta,
+            !t.completedAt &&
+              !!t.dueDate &&
+              t.dueDate < today && { color: c.danger },
+          ]}
+        >
+          {meta}
+        </Text>
         {page === "Yaklaşan" && (
           <Text style={s.meta}>
             Sıradaki tarih: {dateLabel(futureDate(t, today))}
@@ -89,7 +99,7 @@ export const TaskRow = memo(function TaskRow({
         ]}
       >
         <Text
-          style={{ fontSize: 24, color: t.important ? "#D0A320" : "#7065AC" }}
+          style={{ fontSize: 22, color: t.important ? c.cyanInk : "#B9C6DB" }}
         >
           {t.important ? "★" : "☆"}
         </Text>

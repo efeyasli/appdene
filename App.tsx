@@ -12,8 +12,22 @@ import {
   LayoutAnimation,
   AccessibilityInfo,
   Animated,
+  Keyboard,
 } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  useFonts,
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+  Manrope_800ExtraBold,
+} from "@expo-google-fonts/manrope";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import {
   State,
@@ -21,13 +35,12 @@ import {
   emptyState,
   createTask,
   dayKey,
-  addDays,
   localDate,
   dateLabel,
   defaultReminder,
 } from "./src/domain/model";
 import { parseTurkish } from "./src/domain/parse";
-import { attentionCandidates, list, Tab } from "./src/domain/selectors";
+import { futureDate, list, Tab } from "./src/domain/selectors";
 import { notificationPlan, reconcile } from "./src/domain/notifications";
 import { Repository } from "./src/data/repository";
 import { openRepository } from "./src/data/sqlite";
@@ -35,15 +48,23 @@ import { allowed, driver } from "./src/platform/notifications";
 import { DateField } from "./src/ui/DateField";
 import { Button, Sheet, Timestamp } from "./src/ui/Controls";
 import { s } from "./src/ui/styles";
+import { c } from "./src/ui/theme";
 import { TaskEditor } from "./src/ui/TaskEditor";
 import { SettingsScreen } from "./src/ui/SettingsScreen";
 import { TaskTabs, MotionContext, useReducedMotion } from "./src/ui/TaskTabs";
-import { AttentionCarousel } from "./src/ui/AttentionCarousel";
 import { TaskPager } from "./src/ui/TaskPager";
 import { TaskRow, RowActions } from "./src/ui/TaskRow";
 import { selectionFeedback } from "./src/platform/haptics";
-const accent = "#FFE68A";
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
+  });
+  // Fonts are bundled, so this is a few frames; avoid a flash of system font.
+  if (!fontsLoaded) return null;
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
@@ -84,6 +105,22 @@ function Main() {
     [showDone, setShowDone] = useState(false),
     [undo, setUndo] = useState<Task | null>(null);
   const input = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const insets = useSafeAreaInsets(),
+    [keyboard, setKeyboard] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setKeyboard(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboard(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const [scrollX] = useState(() => new Animated.Value(0)),
     [pagerWidth, setPagerWidth] = useState(0);
   async function sync(value: State) {
@@ -299,19 +336,10 @@ function Main() {
     )
       setNotice("Geri alındı");
   }
-  async function snooze(t: Task) {
-    const at = localDate(
-      dayKey(addDays(new Date(), 1)),
-      state.settings.summaryTime,
-    ).toISOString();
-    if (await patch({ ...stored(t), reminderAt: at, snoozedUntil: at })) {
-      setNotice(`Yarın ${state.settings.summaryTime} için hatırlatma seçildi`);
-    }
-  }
   // Stable callbacks for memoized rows; they always call the latest handlers.
-  const latest = useRef({ complete, patch, snooze, stored });
+  const latest = useRef({ complete, patch, stored });
   useEffect(() => {
-    latest.current = { complete, patch, snooze, stored };
+    latest.current = { complete, patch, stored };
   });
   const rowActions = useMemo<RowActions>(
     () => ({
@@ -325,10 +353,6 @@ function Main() {
     [],
   );
   const today = dayKey(now);
-  const focus = useMemo(
-    () => attentionCandidates(state.tasks, now).slice(0, 5),
-    [state.tasks, now],
-  );
   const pages = useMemo(
     () =>
       Object.fromEntries(
@@ -339,6 +363,23 @@ function Main() {
       ) as Record<Tab, Task[]>,
     [state.tasks, today],
   );
+  const overdue = useMemo(
+    () =>
+      state.tasks.filter(
+        (t) => !t.completedAt && t.dueDate && t.dueDate < today,
+      ).length,
+    [state.tasks, today],
+  );
+  const next = pages["Yaklaşan"][0];
+  const nextDay = next ? futureDate(next, today) : undefined;
+  const nextLabel = nextDay
+    ? localDate(nextDay).getTime() - localDate(today).getTime() < 7 * 86400000
+      ? localDate(nextDay).toLocaleDateString("tr-TR", { weekday: "long" })
+      : localDate(nextDay).toLocaleDateString("tr-TR", {
+          day: "numeric",
+          month: "short",
+        })
+    : "Yok";
   const done = useMemo(
     () => state.tasks.filter((t) => t.completedAt),
     [state.tasks],
@@ -358,52 +399,273 @@ function Main() {
       <SafeAreaView style={[s.safe, { padding: 24, justifyContent: "center" }]}>
         {error ? (
           <>
-            <Text>{error}</Text>
+            <Text style={[s.taskTitle, { marginBottom: 12 }]}>{error}</Text>
             <Button label="Yeniden dene" onPress={() => void load()} />
           </>
         ) : (
-          <ActivityIndicator color={accent} />
+          <ActivityIndicator color={c.blue} />
         )}
       </SafeAreaView>
     );
+  const stat = (
+    value: string | number,
+    label: string,
+    target: Tab,
+    highlight = false,
+  ) => (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value}`}
+      onPress={() => {
+        if (target !== tab) selectionFeedback();
+        setTab(target);
+      }}
+      style={({ pressed }) => [s.stat, pressed && { opacity: 0.75 }]}
+    >
+      <Text
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        style={[s.statValue, highlight && { color: c.cyan }]}
+      >
+        {value}
+      </Text>
+      <Text style={s.statLabel}>{label}</Text>
+    </Pressable>
+  );
   return (
     <MotionContext.Provider value={reducedMotion}>
-      <SafeAreaView style={s.safe}>
+      <View style={s.safe}>
         <KeyboardAvoidingView
-          style={s.safe}
+          style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           <ScrollView
             keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
             contentContainerStyle={s.body}
           >
-            <View style={s.header}>
-              <Text accessibilityRole="header" style={s.title}>
-                İşlerim
-              </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Ayarlar"
-                onPress={() => setSettings(true)}
-                style={s.check}
-              >
-                <Text style={{ fontSize: 26, color: "white" }}>⚙</Text>
-              </Pressable>
+            <View style={[s.hero, { paddingTop: insets.top + 10 }]}>
+              {/* Navy continues above the header when the list bounces. */}
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  top: -1000,
+                  left: 0,
+                  right: 0,
+                  height: 1000,
+                  backgroundColor: c.navy,
+                }}
+              />
+              <View style={s.header}>
+                <View style={{ flexShrink: 1 }}>
+                  <Text style={s.date}>
+                    {now.toLocaleDateString("tr-TR", {
+                      day: "numeric",
+                      month: "long",
+                      weekday: "long",
+                    })}
+                  </Text>
+                  <Text accessibilityRole="header" style={s.title}>
+                    İşlerim
+                  </Text>
+                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ayarlar"
+                  hitSlop={8}
+                  onPress={() => setSettings(true)}
+                  style={({ pressed }) => [
+                    s.check,
+                    {
+                      minWidth: 44,
+                      minHeight: 44,
+                      borderRadius: 22,
+                      backgroundColor: c.navyRaised,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Ionicons name="settings-outline" size={21} color={c.white} />
+                </Pressable>
+              </View>
+              <View style={s.stats}>
+                {stat(pages["Bugün"].length, "bugün", "Bugün", true)}
+                {stat(overdue, "gecikmiş", "Bugün")}
+                {stat(nextLabel, "sıradaki teslim", "Yaklaşan")}
+              </View>
             </View>
-            <Text style={s.date}>
-              {now.toLocaleDateString("tr-TR", {
-                day: "numeric",
-                month: "long",
-                weekday: "long",
-                year: "numeric",
-              })}
-            </Text>
+            <View style={s.content}>
+              <TaskTabs
+                selected={tab}
+                scrollX={scrollX}
+                pagerWidth={pagerWidth}
+                onSelect={(t) => {
+                  if (t !== tab) selectionFeedback();
+                  setTab(t);
+                }}
+                reducedMotion={reducedMotion}
+              />
+              <TaskPager
+                selected={tab}
+                onSelect={setTab}
+                reduced={reducedMotion}
+                scrollX={scrollX}
+                onWidth={setPagerWidth}
+                renderPage={(page) => {
+                  const rows = pages[page];
+                  return (
+                    <View style={s.taskCard}>
+                      {rows.length ? (
+                        rows.map((t) => row(t, page))
+                      ) : (
+                        <Text style={s.empty}>
+                          {page === "Bugün"
+                            ? "Bugün için iş yok."
+                            : page === "Yaklaşan"
+                              ? "Yaklaşan iş yok."
+                              : "Tarihsiz işler burada toplanır."}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                }}
+              />
+              {done.length > 0 && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setShowDone(!showDone)}
+                  style={({ pressed }) => ({
+                    paddingVertical: 16,
+                    minHeight: 44,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    opacity: pressed ? 0.6 : 1,
+                  })}
+                >
+                  <Ionicons
+                    name={showDone ? "chevron-down" : "chevron-forward"}
+                    size={16}
+                    color={c.slate}
+                  />
+                  <Text style={[s.meta, { fontSize: 14 }]}>
+                    Tamamlananlar ({done.length})
+                  </Text>
+                </Pressable>
+              )}
+              {showDone && done.length > 0 && (
+                <View style={s.taskCard}>{done.map((t) => row(t))}</View>
+              )}
+            </View>
+          </ScrollView>
+          <View
+            style={[
+              s.composerWrap,
+              { paddingBottom: keyboard ? 8 : Math.max(insets.bottom, 12) },
+            ]}
+          >
+            {!!error && (
+              <View style={s.error}>
+                <Text accessibilityRole="alert" style={s.errorText}>
+                  {error}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Hatayı kapat"
+                  hitSlop={10}
+                  onPress={() => setError("")}
+                >
+                  <Ionicons name="close" size={18} color={c.danger} />
+                </Pressable>
+              </View>
+            )}
+            {!!notice && (
+              <View style={s.feedback}>
+                <Text accessibilityLiveRegion="polite" style={s.feedbackText}>
+                  {notice}
+                </Text>
+                {undo && (
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={10}
+                    onPress={() => void restore()}
+                  >
+                    <Text style={s.feedbackAction}>Geri al</Text>
+                  </Pressable>
+                )}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Bildirimi kapat"
+                  hitSlop={10}
+                  onPress={() => {
+                    setNotice("");
+                    setUndo(null);
+                  }}
+                >
+                  <Ionicons name="close" size={18} color={c.navyMuted} />
+                </Pressable>
+              </View>
+            )}
+            {!!text && (
+              <Pressable
+                onPress={() => setQuick(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Algılanan tarihi ve hatırlatmayı düzelt"
+                style={({ pressed }) => [s.chip, pressed && { opacity: 0.6 }]}
+              >
+                <View style={s.chipPill}>
+                  <Text style={s.chipText}>
+                    <Ionicons name="calendar-outline" size={12} />{" "}
+                    {due.dueDate
+                      ? `${dateLabel(due.dueDate)}${due.dueTime ? " · " + due.dueTime : ""}`
+                      : "Tarih yok"}
+                  </Text>
+                </View>
+                {!!due.dueDate && (
+                  <View style={s.chipPill}>
+                    <Text style={s.chipText}>
+                      <Ionicons name="notifications-outline" size={12} />{" "}
+                      {reminder
+                        ? new Date(reminder).toLocaleString("tr-TR", {
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "Hatırlatma yok"}
+                    </Text>
+                  </View>
+                )}
+                <Text
+                  style={[s.chipText, { color: c.blue, paddingHorizontal: 4 }]}
+                >
+                  {override ? "Elle seçildi · Düzenle" : "Düzenle"}
+                </Text>
+                {override && (
+                  <Pressable
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={() => setOverride(null)}
+                  >
+                    <Text style={[s.chipText, { color: c.slate }]}>
+                      Algılanana dön
+                    </Text>
+                  </Pressable>
+                )}
+                {!override && !!parsed.warning && (
+                  <Text style={[s.meta, { width: "100%", paddingLeft: 4 }]}>
+                    {parsed.warning}
+                  </Text>
+                )}
+              </Pressable>
+            )}
             <View style={s.composer}>
               <TextInput
                 ref={input}
                 accessibilityLabel="Yeni görev"
-                placeholder="Aklındakini yaz…"
-                placeholderTextColor="#7065AC"
+                placeholder="Aklındakini yaz… ör. Cuma 14:00 sunum"
+                placeholderTextColor={c.slate}
                 value={text}
                 onChangeText={(v) => {
                   setText(v);
@@ -419,206 +681,83 @@ function Main() {
                 accessibilityLabel="Görevi ekle"
                 disabled={!text.trim()}
                 onPress={() => void add()}
-                style={[s.add, !text.trim() && { opacity: 0.45 }]}
+                style={({ pressed }) => [
+                  s.add,
+                  !text.trim() && { backgroundColor: c.track },
+                  pressed && { backgroundColor: c.bluePressed },
+                ]}
               >
-                <Text style={{ fontSize: 27, color: "#5D47D9" }}>↑</Text>
+                <Ionicons
+                  name="arrow-up"
+                  size={22}
+                  color={text.trim() ? c.white : c.slate}
+                />
               </Pressable>
             </View>
-            {!!text && (
-              <Pressable
-                onPress={() => setQuick(true)}
-                style={({ pressed }) => ({
-                  paddingVertical: 10,
-                  minHeight: 44,
-                  opacity: pressed ? 0.6 : 1,
-                })}
-                accessibilityLabel="Algılanan tarihi ve hatırlatmayı düzelt"
-              >
-                <Text style={[s.meta, { color: "#E5DEFF" }]}>
-                  {due.dueDate
-                    ? `${dateLabel(due.dueDate)}${due.dueTime ? " · " + due.dueTime : ""}`
-                    : parsed.warning}
-                  {due.dueDate
-                    ? ` · Hatırlatma: ${reminder ? new Date(reminder).toLocaleString("tr-TR") : "seçilmedi"}`
-                    : ""}{" "}
-                  · {override ? "Elle seçildi · Düzenle" : "Düzenle"}
-                </Text>
-                {!override && parsed.warning && due.dueDate && (
-                  <Text style={[s.meta, { color: "#E5DEFF" }]}>
-                    {parsed.warning}
-                  </Text>
-                )}
-              </Pressable>
-            )}
-            {!!text && override && (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => setOverride(null)}
-                style={{ paddingBottom: 8, minHeight: 32 }}
-              >
-                <Text style={[s.meta, { color: "#FFE68A" }]}>
-                  Metinden algılanan tarihe dön
-                </Text>
-              </Pressable>
-            )}
-            {quick && (
-              <Sheet
-                title="Tarih ve hatırlatma"
-                onClose={() => setQuick(false)}
-              >
-                <DateField
-                  label="Teslim tarihi"
-                  value={due.dueDate}
-                  onChange={(d) =>
-                    setOverride({
-                      dueDate: d,
-                      dueTime: d ? due.dueTime : undefined,
-                      reminderAt: defaultReminder(
-                        d,
-                        due.dueTime,
-                        state.settings,
-                        new Date(),
-                      ),
-                    })
-                  }
-                />
-                {due.dueDate && (
-                  <DateField
-                    label="Teslim saati (isteğe bağlı)"
-                    time
-                    value={due.dueTime}
-                    onChange={(t) =>
-                      setOverride({
-                        dueDate: due.dueDate,
-                        dueTime: t,
-                        reminderAt: defaultReminder(
-                          due.dueDate,
-                          t,
-                          state.settings,
-                          new Date(),
-                        ),
-                      })
-                    }
-                  />
-                )}
-                <Timestamp
-                  label="Hatırlatma tarihi"
-                  value={reminder}
-                  onChange={(r) =>
-                    setOverride({
-                      dueDate: due.dueDate,
-                      dueTime: due.dueTime,
-                      reminderAt: r,
-                    })
-                  }
-                />
-              </Sheet>
-            )}
-            {!!error && (
-              <View style={s.feedback}>
-                <Text accessibilityRole="alert" style={{ color: "#A02F28" }}>
-                  {error}
-                </Text>
-                <Pressable
-                  onPress={() => setError("")}
-                  style={{ paddingVertical: 8 }}
-                >
-                  <Text>Kapat</Text>
-                </Pressable>
-              </View>
-            )}
-            {!!notice && (
-              <View style={s.feedback}>
-                <Text accessibilityLiveRegion="polite">{notice}</Text>
-                <View style={s.actions}>
-                  {undo && (
-                    <Button
-                      label="Geri al"
-                      secondary
-                      onPress={() => void restore()}
-                    />
-                  )}
-                  <Button
-                    label="Kapat"
-                    secondary
-                    onPress={() => {
-                      setNotice("");
-                      setUndo(null);
-                    }}
-                  />
-                </View>
-              </View>
-            )}
-            <AttentionCarousel
-              tasks={focus}
-              now={now}
-              reduced={reducedMotion}
-              onOpen={(t) => setEditing({ ...t })}
-              onToday={(t) =>
-                void patch({ ...stored(t), plannedDate: dayKey(now) })
-              }
-              onSnooze={(t) => void snooze(t)}
-            />
-            <TaskTabs
-              selected={tab}
-              scrollX={scrollX}
-              pagerWidth={pagerWidth}
-              onSelect={(t) => {
-                if (t !== tab) selectionFeedback();
-                setTab(t);
-              }}
-              reducedMotion={reducedMotion}
-            />
-            <TaskPager
-              selected={tab}
-              onSelect={setTab}
-              reduced={reducedMotion}
-              scrollX={scrollX}
-              onWidth={setPagerWidth}
-              renderPage={(page) => {
-                const rows = pages[page];
-                return (
-                  <View style={s.taskCard}>
-                    <View style={s.setting}>
-                      <Text style={s.h2}>
-                        {page === "Bugün"
-                          ? "Bugünün odağı"
-                          : page === "Yaklaşan"
-                            ? "Yaklaşan işler"
-                            : "Sonra bakılacaklar"}
-                      </Text>
-                      <Text style={s.meta}>{rows.length} iş</Text>
-                    </View>
-                    {rows.length ? (
-                      rows.map((t) => row(t, page))
-                    ) : (
-                      <Text style={s.empty}>
-                        {page === "Bugün"
-                          ? "Bugün için iş yok."
-                          : page === "Yaklaşan"
-                            ? "Yaklaşan iş yok."
-                            : "Aklındakini yukarıya yaz."}
-                      </Text>
-                    )}
-                  </View>
-                );
-              }}
-            />
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setShowDone(!showDone)}
-              style={{ paddingVertical: 20, minHeight: 44 }}
-            >
-              <Text style={[s.meta, { color: "#E5DEFF" }]}>
-                {showDone ? "Tamamlananları gizle" : "Tamamlananları göster"} (
-                {done.length})
-              </Text>
-            </Pressable>
-            {showDone && (
-              <View style={s.taskCard}>{done.map((t) => row(t))}</View>
-            )}
-          </ScrollView>
+          </View>
         </KeyboardAvoidingView>
+        {/* Keeps the light status bar readable once the header scrolls away. */}
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: insets.top,
+            backgroundColor: c.navy,
+          }}
+        />
+        {quick && (
+          <Sheet title="Tarih ve hatırlatma" onClose={() => setQuick(false)}>
+            <DateField
+              label="Teslim tarihi"
+              value={due.dueDate}
+              onChange={(d) =>
+                setOverride({
+                  dueDate: d,
+                  dueTime: d ? due.dueTime : undefined,
+                  reminderAt: defaultReminder(
+                    d,
+                    due.dueTime,
+                    state.settings,
+                    new Date(),
+                  ),
+                })
+              }
+            />
+            {due.dueDate && (
+              <DateField
+                label="Teslim saati (isteğe bağlı)"
+                time
+                value={due.dueTime}
+                onChange={(t) =>
+                  setOverride({
+                    dueDate: due.dueDate,
+                    dueTime: t,
+                    reminderAt: defaultReminder(
+                      due.dueDate,
+                      t,
+                      state.settings,
+                      new Date(),
+                    ),
+                  })
+                }
+              />
+            )}
+            <Timestamp
+              label="Hatırlatma tarihi"
+              value={reminder}
+              onChange={(r) =>
+                setOverride({
+                  dueDate: due.dueDate,
+                  dueTime: due.dueTime,
+                  reminderAt: r,
+                })
+              }
+            />
+          </Sheet>
+        )}
         {editing && (
           <TaskEditor
             task={editing}
@@ -645,7 +784,7 @@ function Main() {
             onClose={() => setSettings(false)}
           />
         )}
-      </SafeAreaView>
+      </View>
     </MotionContext.Provider>
   );
 }

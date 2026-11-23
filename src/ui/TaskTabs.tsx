@@ -16,6 +16,7 @@ import {
 } from "react-native";
 import { Tab } from "../domain/selectors";
 import { s } from "./styles";
+import { c } from "./theme";
 
 const tabs: Tab[] = ["Bugün", "Yaklaşan", "Sonra"];
 
@@ -66,11 +67,13 @@ export function TaskTabs({
 }) {
   const [width, setWidth] = useState(0);
   const [position] = useState(() => new Animated.Value(0));
+  // The track has 3 px padding on each side; the pill moves inside it.
+  const inner = Math.max(0, width - 6);
   const tracking = !!scrollX && pagerWidth > 0 && width > 0;
   useLayoutEffect(() => {
     if (tracking) return;
     position.stopAnimation();
-    const target = (tabs.indexOf(selected) * width) / tabs.length;
+    const target = (tabs.indexOf(selected) * inner) / tabs.length;
     if (reducedMotion || width === 0) {
       position.setValue(target);
       return;
@@ -83,11 +86,11 @@ export function TaskTabs({
     });
     animation.start();
     return () => animation.stop();
-  }, [selected, width, reducedMotion, position, tracking]);
+  }, [selected, width, inner, reducedMotion, position, tracking]);
   const translateX = tracking
     ? scrollX!.interpolate({
         inputRange: [0, pagerWidth * (tabs.length - 1)],
-        outputRange: [0, (width * (tabs.length - 1)) / tabs.length],
+        outputRange: [0, (inner * (tabs.length - 1)) / tabs.length],
         extrapolate: "clamp",
       })
     : position;
@@ -104,7 +107,7 @@ export function TaskTabs({
             style={[
               s.tabIndicator,
               {
-                width: width / tabs.length,
+                width: inner / tabs.length,
                 transform: [{ translateX }],
               },
             ]}
@@ -119,10 +122,10 @@ export function TaskTabs({
             style={({ pressed }) => [s.tab, { opacity: pressed ? 0.65 : 1 }]}
           >
             <Text
-              style={{
-                color: selected === tab ? "#18105B" : "#FFFFFF",
-                fontWeight: "600",
-              }}
+              style={[
+                s.tabText,
+                { color: selected === tab ? c.navy : c.slate },
+              ]}
             >
               {tab}
             </Text>

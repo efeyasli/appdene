@@ -35,7 +35,7 @@ export function Button({
         },
       ]}
     >
-      <Text style={{ color: "#18105B", fontWeight: "600" }}>{label}</Text>
+      <Text style={secondary ? s.secondaryText : s.buttonText}>{label}</Text>
     </Pressable>
   );
 }
